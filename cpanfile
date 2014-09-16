@@ -3,6 +3,9 @@ requires 'Future', '>= 0.29';
 requires 'Net::Async::IRC', 0;
 requires 'Net::Async::Matrix', '>= 0.05';
 requires 'IO::Async', '>= 0.63';
+requires 'IO::Async::SSL', 0;
+requires 'JSON::MaybeXS', 0;
+requires 'IO::Socket::SSL', 0;
 
 on 'test' => sub {
 	requires 'Test::More', '>= 0.98';
