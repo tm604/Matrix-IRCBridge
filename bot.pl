@@ -187,7 +187,7 @@ $main->start;
 
 END {
 	open my $fh, '>', 'matrix_users.json' or warn "could not save user list - $!";
-	print $json->encode(\%previous_matrix_users);
+	print $fh $json->encode(\%previous_matrix_users);
 }
 
 $loop->attach_signal(
