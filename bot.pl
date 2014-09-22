@@ -5,7 +5,7 @@ use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use JSON::MaybeXS;
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix;
+use Net::Async::Matrix 0.07;
 use YAML;
 use Getopt::Long;
 
@@ -41,8 +41,8 @@ my $json = JSON::MaybeXS->new(
 my %previous_matrix_users = %{
 	$json->decode(do {
 		local $/;
-		open my $fh, '<', 'matrix_users.json' or return '{ }';
-		<$fh>
+		my $fh;
+		open $fh, '<', 'matrix_users.json' and <$fh> or '{ }';
 	})
 };
 
