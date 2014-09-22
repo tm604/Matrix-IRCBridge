@@ -1,0 +1,24 @@
+# Generic Matrix connection params
+matrix:
+  server: 'matrix.perlsite.co.uk'
+  SSL: 1
+
+# Bot-user connection details
+matrix-bot:
+  user_id: '@ircbot:perlsite.co.uk'
+  password: 'ohfei4Ki'
+  access_token: 'QGlyY2JvdDpwZXJsc2l0ZS5jby51aw...vqXrGLqdZgrzBPNXUg'
+
+# Generic IRC connection params
+irc:
+  host: 'localhost'
+
+# Bot-user connection details
+irc-bot:
+  user: 'matrixbot'
+  nick: 'matrixbot'
+
+# Bridge config
+bridge:
+  matrix-room: '!AMenDtYvPiDsZiBxRz:perlsite.co.uk'
+  irc-channel: '#matrixtest'

@@ -6,14 +6,26 @@ use JSON::MaybeXS;
 use IO::Async::Loop;
 use Net::Async::IRC;
 use Net::Async::Matrix;
+use YAML;
+use Getopt::Long;
 
 my $loop = IO::Async::Loop->new;
 
-# Matrix->new parameters for the main bot connection
-my @matrix_bot_config = (
-	user_id => '@ircbot:perlsite.co.uk',
-	access_token => 'QGlyY2JvdDpwZXJsc2l0ZS5jby51aw...vqXrGLqdZgrzBPNXUg',
-);
+GetOptions(
+   'C|config=s' => \(my $CONFIG = "bot.yaml"),
+) or exit 1;
+
+my %CONFIG = %{ YAML::LoadFile( $CONFIG ) };
+
+my %MATRIX_CONFIG = %{ $CONFIG{matrix} };
+# No harm in always applying this
+$MATRIX_CONFIG{SSL_verify_mode} = SSL_VERIFY_NONE;
+
+my $MATRIX_ROOM = $CONFIG{bridge}{"matrix-room"};
+
+my %IRC_CONFIG = %{ $CONFIG{irc} };
+
+my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
 # IRC instances corresponding to Matrix IDs
 my %irc;
@@ -34,23 +46,14 @@ my %previous_matrix_users = %{
 	})
 };
 
-# The hardcoded Matrix room we're interested in proxying traffic for
-my $target_room = '!AMenDtYvPiDsZiBxRz:perlsite.co.uk';
-
 # Predeclare way ahead of time, we may want to be sending messages on this eventually
 my $irc;
 
-# if we need to log in... password for the matrix bot is currently ohfei4Ki
-my @matrix_param =  (
-	server => 'matrix.perlsite.co.uk',
-	SSL => 1,
-	SSL_verify_mode => SSL_VERIFY_NONE,
-);
 my $ready = 0;
 $loop->add(
 	my $main = Net::Async::Matrix->new(
-		@matrix_param,
-		@matrix_bot_config,
+		%MATRIX_CONFIG,
+		%{ $CONFIG{"matrix-bot"} },
 		on_log => sub { warn "log: @_\n" },
 		on_room_new => sub {
 			my ($matrix, $room) = @_;
@@ -91,10 +94,10 @@ $loop->add(
 							$loop->add($ui);
 							$irc{lc $irc_user} = $ui->login(
 								nick => $irc_user,
-								host => 'localhost',
+								%IRC_CONFIG,
 							)->then(sub {
 								Future->needs_all(
-									$ui->send_message( "JOIN", undef, "#matrixtest"),
+									$ui->send_message( "JOIN", undef, $IRC_CHANNEL),
 									# could notify someone if we want to track user creation
 									# $ui->send_message( "PRIVMSG", undef, "tom_m", "i exist" )
 								)
@@ -110,9 +113,9 @@ $loop->add(
 							my $ui = shift;
 							warn "sending message for $irc_user - $msg\n";
 							if($msgtype eq 'm.text') {
-								return $ui->send_message( "PRIVMSG", undef, '#matrixtest', $msg);
+								return $ui->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
 							} elsif($msgtype eq 'm.emote') {
-								return $ui->send_ctcp(undef, "#matrixtest", "ACTION", $msg);
+								return $ui->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
 							} else {
 								warn "unknown type $msgtype\n";
 							}
@@ -126,7 +129,7 @@ $loop->add(
 	)
 );
 
-$main->join_room($target_room)->get;
+$main->join_room($MATRIX_ROOM)->get;
 
 $irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
@@ -175,11 +178,10 @@ $loop->add( $irc );
 # These parameters would normally be configurable
 my $f;
 $f = $irc->login(
-	user => "matrixbot",
-	nick => "matrixbot",
-	host => "localhost",
+	%IRC_CONFIG,
+	%{ $CONFIG{"irc-bot"} },
 )->then(sub {
-	$irc->send_message( "JOIN", undef, "#matrixtest");
+	$irc->send_message( "JOIN", undef, $IRC_CHANNEL);
 })->on_ready(sub { undef $f });
 $main->start;
 
@@ -207,7 +209,7 @@ sub setup_irc_user {
 		if(exists $previous_matrix_users{$irc_user}) {
 			warn "Using prior matrix user for $irc_user";
 			$loop->add(my $mat = Net::Async::Matrix->new(
-				@matrix_param,
+				%MATRIX_CONFIG,
 				user_id => $previous_matrix_users{$irc_user}[0],
 				access_token => $previous_matrix_users{$irc_user}[1],
 				on_room_new => sub {
@@ -217,11 +219,11 @@ sub setup_irc_user {
 				}
 			));
 			# we need to join before we can send to a room
-			$matrix{$irc_user} = $mat->join_room($target_room);
+			$matrix{$irc_user} = $mat->join_room($MATRIX_ROOM);
 		} else {
 			warn "Creating new matrix user for $irc_user\n";
 			$loop->add(my $m = Net::Async::Matrix->new(
-				@matrix_param,
+				%MATRIX_CONFIG,
 				user_id => $previous_matrix_users{$irc_user}[0],
 				access_token => $previous_matrix_users{$irc_user}[1],
 				on_room_new => sub {
@@ -235,7 +237,7 @@ sub setup_irc_user {
 				warn "!!! Could not register $irc_user\n" unless defined $user_id;
 				warn "New user: $user_id with AT $access_token\n";
 				$previous_matrix_users{$irc_user} = [ $user_id, $access_token ];
-				$m->join_room($target_room)
+				$m->join_room($MATRIX_ROOM)
 			}, sub {
 				warn "failure... @_";
 				return 1;
