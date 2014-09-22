@@ -49,6 +49,8 @@ my %previous_matrix_users = %{
 # Predeclare way ahead of time, we may want to be sending messages on this eventually
 my $irc;
 
+my %matrix_rooms;
+
 $loop->add(
 	my $main = Net::Async::Matrix->new(
 		%MATRIX_CONFIG,
@@ -56,6 +58,8 @@ $loop->add(
 		on_room_new => sub {
 			my ($matrix, $room) = @_;
 			warn "Have a room: " . $room->name . "\n";
+
+			$matrix_rooms{$room->room_id} = $room;
 
 			$room->configure(
 				on_message => sub {
@@ -120,8 +124,11 @@ $loop->add(
 );
 
 $main->login( %{ $CONFIG{"matrix-bot"} } )->get;
+$main->start->get; # await room initialSync
 
-$main->join_room($MATRIX_ROOM)->get;
+# We should now be started up
+$matrix_rooms{$MATRIX_ROOM} or
+	$main->join_room($MATRIX_ROOM)->get;
 
 $irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
