@@ -78,6 +78,9 @@ $loop->add(
 							return
 						} 
 
+						# Prefix the IRC username to make it clear they came from Matrix
+						$irc_user = "Mx-$irc_user";
+
 						# the "user IRC" connection
 						my $ui;
 						unless(exists $irc{lc $irc_user}) {
