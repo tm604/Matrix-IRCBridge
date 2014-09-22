@@ -49,26 +49,16 @@ my %previous_matrix_users = %{
 # Predeclare way ahead of time, we may want to be sending messages on this eventually
 my $irc;
 
-my $ready = 0;
 $loop->add(
 	my $main = Net::Async::Matrix->new(
 		%MATRIX_CONFIG,
-		%{ $CONFIG{"matrix-bot"} },
 		on_log => sub { warn "log: @_\n" },
 		on_room_new => sub {
 			my ($matrix, $room) = @_;
 			warn "Have a room: " . $room->name . "\n";
 
-			# Ideally we wouldn't do the initial sync... but for various reasons we do a sync,
-			# then throw away initial messages, we expect to be running longterm so it's only
-			# a hit on startup
 			$room->configure(
-				# Use this flag to indicate we're throwing away messages
-				on_synced_messages => sub { $ready = 1 },
 				on_message => sub {
-					# ... and here's where we skip initial sync junk
-					return unless $ready;
-
 					eval {
 						my ($room, $from, $content) = @_;
 						warn "Message in " . $room->name . ": " . $content->{body};
@@ -128,6 +118,8 @@ $loop->add(
 		}
 	)
 );
+
+$main->login( %{ $CONFIG{"matrix-bot"} } )->get;
 
 $main->join_room($MATRIX_ROOM)->get;
 
@@ -232,7 +224,10 @@ sub setup_irc_user {
 					$matrix{$irc_user}->done($room);
 				}
 			));
-			$matrix{$irc_user} = $m->register($irc_user, 'nothing')->then(sub {
+			$matrix{$irc_user} = $m->register(
+				user_id => $irc_user,
+				password => 'nothing',
+			)->then(sub {
 				my ($user_id, $access_token) = @_;
 				warn "!!! Could not register $irc_user\n" unless defined $user_id;
 				warn "New user: $user_id with AT $access_token\n";
