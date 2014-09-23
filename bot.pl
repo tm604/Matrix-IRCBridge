@@ -226,8 +226,6 @@ sub setup_irc_user {
 			warn "Creating new matrix user for $irc_user\n";
 			$loop->add(my $m = Net::Async::Matrix->new(
 				%MATRIX_CONFIG,
-				user_id => $previous_matrix_users{$irc_user}[0],
-				access_token => $previous_matrix_users{$irc_user}[1],
 				on_room_new => sub {
 					my (undef, $room) = @_;
 					warn "Room: " . $room->name . "\n";
