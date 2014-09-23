@@ -52,63 +52,60 @@ my $matrix = Net::Async::Matrix->new(
 
 		$room->configure(
 			on_message => sub {
-				eval {
-					my ($room, $from, $content) = @_;
-					warn "Message in " . $room->name . ": " . $content->{body};
+				my ($room, $from, $content) = @_;
+				warn "Message in " . $room->name . ": " . $content->{body};
 
-					# Mangle the Matrix user_id into something that might work on an IRC channel
-					my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
-					$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
+				# Mangle the Matrix user_id into something that might work on an IRC channel
+				my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
+				$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
 
-					# so this would want to be changed to match on content instead, if we
-					# want users to be able to use IRC and Matrix users interchangeably
-					if($irc_user =~ /^irc_/) {
-						warn "this was a message from an IRC user, ignoring\n";
-						return
-					} 
+				# so this would want to be changed to match on content instead, if we
+				# want users to be able to use IRC and Matrix users interchangeably
+				if($irc_user =~ /^irc_/) {
+					warn "this was a message from an IRC user, ignoring\n";
+					return
+				} 
 
-					# Prefix the IRC username to make it clear they came from Matrix
-					$irc_user = "Mx-$irc_user";
+				# Prefix the IRC username to make it clear they came from Matrix
+				$irc_user = "Mx-$irc_user";
 
-					# the "user IRC" connection
-					my $ui;
-					unless(exists $irc{lc $irc_user}) {
-						warn "Creating new IRC user for $irc_user\n";
-						$ui = Net::Async::IRC->new(
-							user => $irc_user
-						);
-						$loop->add($ui);
-						$irc{lc $irc_user} = $ui->login(
-							nick => $irc_user,
-							%IRC_CONFIG,
-						)->then(sub {
-							Future->needs_all(
-								$ui->send_message( "JOIN", undef, $IRC_CHANNEL),
-								# could notify someone if we want to track user creation
-								# $ui->send_message( "PRIVMSG", undef, "tom_m", "i exist" )
-							)
-						})->transform(
-							done => sub { $ui },
-							fail => sub { warn "something went wrong... @_"; 1 }
+				# the "user IRC" connection
+				my $ui;
+				unless(exists $irc{lc $irc_user}) {
+					warn "Creating new IRC user for $irc_user\n";
+					$ui = Net::Async::IRC->new(
+						user => $irc_user
+					);
+					$loop->add($ui);
+					$irc{lc $irc_user} = $ui->login(
+						nick => $irc_user,
+						%IRC_CONFIG,
+					)->then(sub {
+						Future->needs_all(
+							$ui->send_message( "JOIN", undef, $IRC_CHANNEL),
+							# could notify someone if we want to track user creation
+							# $ui->send_message( "PRIVMSG", undef, "tom_m", "i exist" )
 						)
+					})->transform(
+						done => sub { $ui },
+						fail => sub { warn "something went wrong... @_"; 1 }
+					)
+				}
+				my $msg = $content->{body};
+				my $msgtype = $content->{msgtype};
+				warn "Queue message for IRC as $irc_user\n";
+				my $f = $irc{lc $irc_user}->then(sub {
+					my $ui = shift;
+					warn "sending message for $irc_user - $msg\n";
+					if($msgtype eq 'm.text') {
+						return $ui->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
+					} elsif($msgtype eq 'm.emote') {
+						return $ui->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
+					} else {
+						warn "unknown type $msgtype\n";
 					}
-					my $msg = $content->{body};
-					my $msgtype = $content->{msgtype};
-					warn "Queue message for IRC as $irc_user\n";
-					my $f = $irc{lc $irc_user}->then(sub {
-						my $ui = shift;
-						warn "sending message for $irc_user - $msg\n";
-						if($msgtype eq 'm.text') {
-							return $ui->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
-						} elsif($msgtype eq 'm.emote') {
-							return $ui->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
-						} else {
-							warn "unknown type $msgtype\n";
-						}
-					}, sub { warn "unexpected error - @_\n"; Future->done });
-					$f->on_ready(sub { undef $f });
-					1
-				} or warn ":: failure in on_message - $@";
+				}, sub { warn "unexpected error - @_\n"; Future->done });
+				$f->on_ready(sub { undef $f });
 			}
 		);
 	},
