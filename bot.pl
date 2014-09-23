@@ -187,11 +187,6 @@ $f = $irc->login(
 })->on_ready(sub { undef $f });
 $main->start;
 
-END {
-	open my $fh, '>', 'matrix_users.json' or warn "could not save user list - $!";
-	print $fh $json->encode(\%previous_matrix_users);
-}
-
 $loop->attach_signal(
 	PIPE => sub { warn "pipe\n" }
 );
@@ -206,6 +201,9 @@ $loop->run;
 # When the bot gets shut down, have it leave the room so it's clear to observers
 # that it is no longer running.
 $matrix_rooms{$MATRIX_ROOM}->leave->get;
+
+open my $fh, '>', 'matrix_users.json' or warn "could not save user list - $!";
+print $fh $json->encode(\%previous_matrix_users);
 
 exit 0;
 
