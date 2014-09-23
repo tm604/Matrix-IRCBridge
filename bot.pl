@@ -28,15 +28,12 @@ my %IRC_CONFIG = %{ $CONFIG{irc} };
 
 my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
-my %matrix_rooms;
 my $bot_matrix = Net::Async::Matrix->new(
 	%MATRIX_CONFIG,
 	on_log => sub { warn "log: @_\n" },
 	on_room_new => sub {
 		my ($matrix, $room) = @_;
 		warn "Have a room: " . $room->name . "\n";
-
-		$matrix_rooms{$room->room_id} = $room;
 
 		$room->configure(
 			on_message => sub {
@@ -130,11 +127,17 @@ my $bot_irc = Net::Async::IRC->new(
 );
 $loop->add( $bot_irc );
 
+# Track every Room object, so we can ->leave them all on shutdown
+my @all_matrix_rooms;
+
 Future->needs_all(
 	$bot_matrix->login( %{ $CONFIG{"matrix-bot"} } )->then( sub {
 		$bot_matrix->start;
 	})->then( sub {
-		$bot_matrix->join_room($MATRIX_ROOM);
+		$bot_matrix->join_room($MATRIX_ROOM)
+	})->on_done( sub {
+		my ( $room ) = @_;
+		push @all_matrix_rooms, $room;
 	}),
 
 	$bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
@@ -155,9 +158,9 @@ eval {
    $loop->run;
 } or my $e = $@;
 
-# When the bot gets shut down, have it leave the room so it's clear to observers
+# When the bot gets shut down, have it leave the rooms so it's clear to observers
 # that it is no longer running.
-$matrix_rooms{$MATRIX_ROOM}->leave->get;
+Future->wait_all( map { $_->leave->else_done() } @all_matrix_rooms )->get;
 
 die $e if $e;
 
@@ -183,6 +186,10 @@ exit 0;
 
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
+			on_room_new => sub {
+				my ($user_matrix, $room) = @_;
+				push @all_matrix_rooms, $room;
+			},
 		);
 		$bot_matrix->add_child( $user_matrix );
 
