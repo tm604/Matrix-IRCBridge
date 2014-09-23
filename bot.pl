@@ -131,6 +131,9 @@ $irc = Net::Async::IRC->new(
 		my $irc_user = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
 		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
+			my ($user_matrix) = @_;
+			$user_matrix->join_room($MATRIX_ROOM);
+		})->then( sub {
 			my ($room) = @_;
 			warn "Sending emote $msg\n";
 			$room->send_message(
@@ -149,6 +152,9 @@ $irc = Net::Async::IRC->new(
 		my $irc_user = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
 		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
+			my ($user_matrix) = @_;
+			$user_matrix->join_room($MATRIX_ROOM);
+		})->then( sub {
 			my ($room) = @_;
 			warn "Sending text $msg\n";
 			$room->send_message(
@@ -212,7 +218,7 @@ sub _make_matrix_user
 	);
 	$matrix->add_child( $user_matrix );
 
-	(
+	return $matrix_users{$irc_user} = (
 		# Try to register a new user
 		$user_matrix->register(
 			user_id => $irc_user,
@@ -226,11 +232,8 @@ sub _make_matrix_user
 			password => 'nothing',
 		)
 	})->then( sub {
-		$user_matrix->start;
-	})->then( sub {
-		$matrix_users{$irc_user} = $user_matrix->join_room($MATRIX_ROOM);
+		$user_matrix->start->then_done( $user_matrix );
 	})->on_done(sub {
-		my ($room) = @_;
-		warn "New Matrix user ready with room: $room\n";
+		warn "New Matrix user ready\n";
 	});
 }
