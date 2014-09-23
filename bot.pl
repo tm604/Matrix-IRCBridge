@@ -256,7 +256,7 @@ sub setup_irc_user {
 				$m->join_room($MATRIX_ROOM)
 			}, sub {
 				warn "failure... @_";
-				return 1;
+				Future->fail(@_);
 			})->on_done(sub {
 				my ($room) = @_;
 				warn "New Matrix user ready with room: $room\n";
