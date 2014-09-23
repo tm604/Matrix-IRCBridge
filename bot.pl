@@ -12,8 +12,10 @@ use Getopt::Long;
 my $loop = IO::Async::Loop->new;
 
 GetOptions(
-   'C|config=s' => \(my $CONFIG = "bot.yaml"),
+   'C|config=s' => \my $CONFIG,
 ) or exit 1;
+
+defined $CONFIG or die "Must supply --configfile\n";
 
 my %CONFIG = %{ YAML::LoadFile( $CONFIG ) };
 
