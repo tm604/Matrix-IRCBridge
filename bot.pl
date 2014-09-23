@@ -28,9 +28,6 @@ my %IRC_CONFIG = %{ $CONFIG{irc} };
 
 my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
-# IRC instances corresponding to Matrix IDs
-my %irc;
-
 my %matrix_rooms;
 my $bot_matrix = Net::Async::Matrix->new(
 	%MATRIX_CONFIG,
@@ -89,11 +86,11 @@ my $bot_irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
 		my ( $self, $message, $hints ) = @_;
 		warn "CTCP action";
-		return if exists $irc{lc $hints->{prefix_name}};
+		return if is_irc_user($hints->{prefix_name});
 		warn "we think we should do this one";
-		my $irc_user = "irc_" . $hints->{prefix_name};
+		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
-		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
+		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
 			my ($user_matrix) = @_;
 			$user_matrix->join_room($MATRIX_ROOM);
 		})->then( sub {
@@ -110,11 +107,11 @@ my $bot_irc = Net::Async::IRC->new(
 		my ( $self, $message, $hints ) = @_;
 		warn "text message";
 		return if $hints->{is_notice};
-		return if exists $irc{lc $hints->{prefix_name}};
+		return if is_irc_user($hints->{prefix_name});
 		warn "we think we should do this one";
-		my $irc_user = "irc_" . $hints->{prefix_name};
+		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
-		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
+		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
 			my ($user_matrix) = @_;
 			$user_matrix->join_room($MATRIX_ROOM);
 		})->then( sub {
@@ -170,30 +167,36 @@ exit 0;
 	my %matrix_users;
 	sub get_or_make_matrix_user
 	{
-		my ($irc_user) = @_;
-		return $matrix_users{$irc_user} ||= _make_matrix_user($irc_user);
+		my ($matrix_id) = @_;
+		return $matrix_users{$matrix_id} ||= _make_matrix_user($matrix_id);
+	}
+
+	sub is_matrix_user
+	{
+		my ($matrix_id) = @_;
+		return defined $matrix_users{$matrix_id};
 	}
 
 	sub _make_matrix_user
 	{
-		my ($irc_user) = @_;
+		my ($matrix_id) = @_;
 
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
 		);
 		$bot_matrix->add_child( $user_matrix );
 
-		return $matrix_users{$irc_user} = (
+		return $matrix_users{$matrix_id} = (
 			# Try to register a new user
 			$user_matrix->register(
-				user_id => $irc_user,
+				user_id => $matrix_id,
 				password => 'nothing',
 				%{ $CONFIG{"matrix-register"} || {} },
 			)
 		)->else( sub {
 			# If it failed, log in as existing one
 			$user_matrix->login(
-				user_id => $irc_user,
+				user_id => $matrix_id,
 				password => 'nothing',
 			)
 		})->then( sub {
@@ -210,6 +213,12 @@ exit 0;
 	{
 		my ($irc_user) = @_;
 		return $irc_users{lc $irc_user} ||= _make_irc_user($irc_user);
+	}
+
+	sub is_irc_user
+	{
+		my ($irc_user) = @_;
+		return defined $irc_users{lc $irc_user};
 	}
 
 	sub _make_irc_user
