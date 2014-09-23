@@ -229,6 +229,8 @@ sub _make_matrix_user
 			password => 'nothing',
 		)
 	})->then( sub {
+		$user_matrix->start;
+	})->then( sub {
 		$matrix_users{$irc_user} = $user_matrix->join_room($MATRIX_ROOM);
 	})->on_done(sub {
 		my ($room) = @_;
