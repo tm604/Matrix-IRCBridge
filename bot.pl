@@ -37,20 +37,10 @@ my $json = JSON::MaybeXS->new(
 	pretty => 1
 );
 
-# Users we already have - without ->login in NaMatrix we need to retain access tokens
-my %previous_matrix_users = %{
-	$json->decode(do {
-		local $/;
-		my $fh;
-		open $fh, '<', 'matrix_users.json' and <$fh> or '{ }';
-	})
-};
-
 # Predeclare way ahead of time, we may want to be sending messages on this eventually
 my $irc;
 
 my %matrix_rooms;
-my %matrix_users;
 my $matrix = Net::Async::Matrix->new(
 	%MATRIX_CONFIG,
 	on_log => sub { warn "log: @_\n" },
@@ -143,9 +133,7 @@ $irc = Net::Async::IRC->new(
 		warn "we think we should do this one";
 		my $irc_user = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
-		setup_irc_user($irc_user);
-
-		my $f = $matrix_users{$irc_user}->then(sub {
+		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
 			my ($room) = @_;
 			warn "Sending emote $msg\n";
 			$room->send_message(
@@ -163,9 +151,7 @@ $irc = Net::Async::IRC->new(
 		warn "we think we should do this one";
 		my $irc_user = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
-		setup_irc_user($irc_user);
-
-		my $f = $matrix_users{$irc_user}->then(sub {
+		my $f = get_or_make_matrix_user( $irc_user )->then(sub {
 			my ($room) = @_;
 			warn "Sending text $msg\n";
 			$room->send_message(
@@ -208,60 +194,44 @@ eval {
 # that it is no longer running.
 $matrix_rooms{$MATRIX_ROOM}->leave->get;
 
-open my $fh, '>', 'matrix_users.json' or warn "could not save user list - $!";
-print $fh $json->encode(\%previous_matrix_users);
-
 die $e if $e;
 
 exit 0;
 
 # this bit establishes the per-user IRC connection
-sub setup_irc_user {
+my %matrix_users;
+sub get_or_make_matrix_user
+{
 	my ($irc_user) = @_;
-	unless(exists $matrix_users{$irc_user}) {
-		if(exists $previous_matrix_users{$irc_user}) {
-			warn "Using prior matrix user for $irc_user";
-			$loop->add(my $mat = Net::Async::Matrix->new(
-				%MATRIX_CONFIG,
-				on_room_new => sub {
-					my (undef, $room) = @_;
-					warn "Room new thingey appeared: " . $room->name . "\n";
-					# $matrix_users{$irc_user}->done($room);
-				}
-			));
-			$mat->login(
-				user_id => $previous_matrix_users{$irc_user}[0],
-				access_token => $previous_matrix_users{$irc_user}[1],
-			);
-			# we need to join before we can send to a room
-			$matrix_users{$irc_user} = $mat->join_room($MATRIX_ROOM);
-		} else {
-			warn "Creating new matrix user for $irc_user\n";
-			$loop->add(my $m = Net::Async::Matrix->new(
-				%MATRIX_CONFIG,
-				on_room_new => sub {
-					my (undef, $room) = @_;
-					warn "Room: " . $room->name . "\n";
-					$matrix_users{$irc_user}->done($room);
-				}
-			));
-			$matrix_users{$irc_user} = $m->register(
-				user_id => $irc_user,
-				password => 'nothing',
-				%{ $CONFIG{"matrix-register"} || {} },
-			)->then(sub {
-				my ($user_id, $access_token) = @_;
-				warn "!!! Could not register $irc_user\n" unless defined $user_id;
-				warn "New user: $user_id with AT $access_token\n";
-				$previous_matrix_users{$irc_user} = [ $user_id, $access_token ];
-				$m->join_room($MATRIX_ROOM)
-			}, sub {
-				warn "failure... @_";
-				Future->fail(@_);
-			})->on_done(sub {
-				my ($room) = @_;
-				warn "New Matrix user ready with room: $room\n";
-			});
-		}
-	}
+	return $matrix_users{$irc_user} ||= _make_matrix_user($irc_user);
+}
+
+sub _make_matrix_user
+{
+	my ($irc_user) = @_;
+
+	my $user_matrix = Net::Async::Matrix->new(
+		%MATRIX_CONFIG,
+	);
+	$matrix->add_child( $user_matrix );
+
+	(
+		# Try to register a new user
+		$user_matrix->register(
+			user_id => $irc_user,
+			password => 'nothing',
+			%{ $CONFIG{"matrix-register"} || {} },
+		)
+	)->else( sub {
+		# If it failed, log in as existing one
+		$user_matrix->login(
+			user_id => $irc_user,
+			password => 'nothing',
+		)
+	})->then( sub {
+		$matrix_users{$irc_user} = $user_matrix->join_room($MATRIX_ROOM);
+	})->on_done(sub {
+		my ($room) = @_;
+		warn "New Matrix user ready with room: $room\n";
+	});
 }
