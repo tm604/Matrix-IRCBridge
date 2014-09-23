@@ -248,6 +248,7 @@ sub setup_irc_user {
 			$matrix_users{$irc_user} = $m->register(
 				user_id => $irc_user,
 				password => 'nothing',
+				%{ $CONFIG{"matrix-register"} || {} },
 			)->then(sub {
 				my ($user_id, $access_token) = @_;
 				warn "!!! Could not register $irc_user\n" unless defined $user_id;
