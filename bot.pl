@@ -138,7 +138,7 @@ $irc = Net::Async::IRC->new(
 				body => $msg,
 			)
 		});
-		$f->on_ready(sub { undef $f });
+		$irc->adopt_future( $f );
 	},
 	on_message_text => sub {
 		my ( $self, $message, $hints ) = @_;
@@ -156,7 +156,7 @@ $irc = Net::Async::IRC->new(
 				body => $msg,
 			)
 		});
-		$f->on_ready(sub { undef $f });
+		$irc->adopt_future( $f );
 	},
 	on_error => sub {
 		print STDERR "IRC failure: @_\n";
