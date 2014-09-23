@@ -31,11 +31,8 @@ my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 # IRC instances corresponding to Matrix IDs
 my %irc;
 
-# Predeclare way ahead of time, we may want to be sending messages on this eventually
-my $irc;
-
 my %matrix_rooms;
-my $matrix = Net::Async::Matrix->new(
+my $bot_matrix = Net::Async::Matrix->new(
 	%MATRIX_CONFIG,
 	on_log => sub { warn "log: @_\n" },
 	on_room_new => sub {
@@ -86,16 +83,9 @@ my $matrix = Net::Async::Matrix->new(
 		print STDERR "Matrix failure: @_\n";
 	},
 );
-$loop->add( $matrix );
+$loop->add( $bot_matrix );
 
-$matrix->login( %{ $CONFIG{"matrix-bot"} } )->get;
-$matrix->start->get; # await room initialSync
-
-# We should now be started up
-$matrix_rooms{$MATRIX_ROOM} or
-	$matrix->join_room($MATRIX_ROOM)->get;
-
-$irc = Net::Async::IRC->new(
+my $bot_irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
 		my ( $self, $message, $hints ) = @_;
 		warn "CTCP action";
@@ -114,7 +104,7 @@ $irc = Net::Async::IRC->new(
 				body => $msg,
 			)
 		});
-		$irc->adopt_future( $f );
+		$self->adopt_future( $f );
 	},
 	on_message_text => sub {
 		my ( $self, $message, $hints ) = @_;
@@ -135,23 +125,25 @@ $irc = Net::Async::IRC->new(
 				body => $msg,
 			)
 		});
-		$irc->adopt_future( $f );
+		$self->adopt_future( $f );
 	},
 	on_error => sub {
 		print STDERR "IRC failure: @_\n";
 	},
 );
+$loop->add( $bot_irc );
 
-$loop->add( $irc );
+Future->needs_all(
+	$bot_matrix->login( %{ $CONFIG{"matrix-bot"} } )->then( sub {
+		$bot_matrix->start;
+	})->then( sub {
+		$bot_matrix->join_room($MATRIX_ROOM);
+	}),
 
-# These parameters would normally be configurable
-my $f;
-$f = $irc->login(
-	%IRC_CONFIG,
-	%{ $CONFIG{"irc-bot"} },
-)->then(sub {
-	$irc->send_message( "JOIN", undef, $IRC_CHANNEL);
-})->on_ready(sub { undef $f });
+	$bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
+		$bot_irc->send_message( "JOIN", undef, $IRC_CHANNEL);
+	}),
+)->get;
 
 $loop->attach_signal(
 	PIPE => sub { warn "pipe\n" }
@@ -189,7 +181,7 @@ exit 0;
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
 		);
-		$matrix->add_child( $user_matrix );
+		$bot_matrix->add_child( $user_matrix );
 
 		return $matrix_users{$irc_user} = (
 			# Try to register a new user
@@ -228,7 +220,7 @@ exit 0;
 		my $user_irc = Net::Async::IRC->new(
 			user => $irc_user
 		);
-		$irc->add_child( $user_irc );
+		$bot_irc->add_child( $user_irc );
 
 		$irc_users{lc $irc_user} = $user_irc->login(
 			nick => $irc_user,
