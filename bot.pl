@@ -202,6 +202,11 @@ $loop->attach_signal(
 	TERM => sub { $loop->stop },
 );
 $loop->run;
+
+# When the bot gets shut down, have it leave the room so it's clear to observers
+# that it is no longer running.
+$matrix_rooms{$MATRIX_ROOM}->leave->get;
+
 exit 0;
 
 # this bit establishes the per-user IRC connection
