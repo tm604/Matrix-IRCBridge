@@ -31,8 +31,6 @@ my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
 # IRC instances corresponding to Matrix IDs
 my %irc;
-# Matrix room instances corresponding to IRC nicks
-my %matrix;
 
 my $json = JSON::MaybeXS->new(
 	utf8 => 1,
@@ -52,88 +50,90 @@ my %previous_matrix_users = %{
 my $irc;
 
 my %matrix_rooms;
+my %matrix_users;
+my $matrix = Net::Async::Matrix->new(
+	%MATRIX_CONFIG,
+	on_log => sub { warn "log: @_\n" },
+	on_room_new => sub {
+		my ($matrix, $room) = @_;
+		warn "Have a room: " . $room->name . "\n";
 
-$loop->add(
-	my $main = Net::Async::Matrix->new(
-		%MATRIX_CONFIG,
-		on_log => sub { warn "log: @_\n" },
-		on_room_new => sub {
-			my ($matrix, $room) = @_;
-			warn "Have a room: " . $room->name . "\n";
+		$matrix_rooms{$room->room_id} = $room;
 
-			$matrix_rooms{$room->room_id} = $room;
+		$room->configure(
+			on_message => sub {
+				eval {
+					my ($room, $from, $content) = @_;
+					warn "Message in " . $room->name . ": " . $content->{body};
 
-			$room->configure(
-				on_message => sub {
-					eval {
-						my ($room, $from, $content) = @_;
-						warn "Message in " . $room->name . ": " . $content->{body};
+					# Mangle the Matrix user_id into something that might work on an IRC channel
+					my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
+					$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
 
-						# Mangle the Matrix user_id into something that might work on an IRC channel
-						my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
-						$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
+					# so this would want to be changed to match on content instead, if we
+					# want users to be able to use IRC and Matrix users interchangeably
+					if($irc_user =~ /^irc_/) {
+						warn "this was a message from an IRC user, ignoring\n";
+						return
+					} 
 
-						# so this would want to be changed to match on content instead, if we
-						# want users to be able to use IRC and Matrix users interchangeably
-						if($irc_user =~ /^irc_/) {
-							warn "this was a message from an IRC user, ignoring\n";
-							return
-						} 
+					# Prefix the IRC username to make it clear they came from Matrix
+					$irc_user = "Mx-$irc_user";
 
-						# Prefix the IRC username to make it clear they came from Matrix
-						$irc_user = "Mx-$irc_user";
-
-						# the "user IRC" connection
-						my $ui;
-						unless(exists $irc{lc $irc_user}) {
-							warn "Creating new IRC user for $irc_user\n";
-							$ui = Net::Async::IRC->new(
-								user => $irc_user
-							);
-							$loop->add($ui);
-							$irc{lc $irc_user} = $ui->login(
-								nick => $irc_user,
-								%IRC_CONFIG,
-							)->then(sub {
-								Future->needs_all(
-									$ui->send_message( "JOIN", undef, $IRC_CHANNEL),
-									# could notify someone if we want to track user creation
-									# $ui->send_message( "PRIVMSG", undef, "tom_m", "i exist" )
-								)
-							})->transform(
-								done => sub { $ui },
-								fail => sub { warn "something went wrong... @_"; 1 }
+					# the "user IRC" connection
+					my $ui;
+					unless(exists $irc{lc $irc_user}) {
+						warn "Creating new IRC user for $irc_user\n";
+						$ui = Net::Async::IRC->new(
+							user => $irc_user
+						);
+						$loop->add($ui);
+						$irc{lc $irc_user} = $ui->login(
+							nick => $irc_user,
+							%IRC_CONFIG,
+						)->then(sub {
+							Future->needs_all(
+								$ui->send_message( "JOIN", undef, $IRC_CHANNEL),
+								# could notify someone if we want to track user creation
+								# $ui->send_message( "PRIVMSG", undef, "tom_m", "i exist" )
 							)
+						})->transform(
+							done => sub { $ui },
+							fail => sub { warn "something went wrong... @_"; 1 }
+						)
+					}
+					my $msg = $content->{body};
+					my $msgtype = $content->{msgtype};
+					warn "Queue message for IRC as $irc_user\n";
+					my $f = $irc{lc $irc_user}->then(sub {
+						my $ui = shift;
+						warn "sending message for $irc_user - $msg\n";
+						if($msgtype eq 'm.text') {
+							return $ui->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
+						} elsif($msgtype eq 'm.emote') {
+							return $ui->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
+						} else {
+							warn "unknown type $msgtype\n";
 						}
-						my $msg = $content->{body};
-						my $msgtype = $content->{msgtype};
-						warn "Queue message for IRC as $irc_user\n";
-						my $f = $irc{lc $irc_user}->then(sub {
-							my $ui = shift;
-							warn "sending message for $irc_user - $msg\n";
-							if($msgtype eq 'm.text') {
-								return $ui->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
-							} elsif($msgtype eq 'm.emote') {
-								return $ui->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
-							} else {
-								warn "unknown type $msgtype\n";
-							}
-						}, sub { warn "unexpected error - @_\n"; Future->done });
-						$f->on_ready(sub { undef $f });
-						1
-					} or warn ":: failure in on_message - $@";
-				}
-			);
-		}
-	)
+					}, sub { warn "unexpected error - @_\n"; Future->done });
+					$f->on_ready(sub { undef $f });
+					1
+				} or warn ":: failure in on_message - $@";
+			}
+		);
+	},
+	on_error => sub {
+		print STDERR "Matrix failure: @_\n";
+	},
 );
+$loop->add( $matrix );
 
-$main->login( %{ $CONFIG{"matrix-bot"} } )->get;
-$main->start->get; # await room initialSync
+$matrix->login( %{ $CONFIG{"matrix-bot"} } )->get;
+$matrix->start->get; # await room initialSync
 
 # We should now be started up
 $matrix_rooms{$MATRIX_ROOM} or
-	$main->join_room($MATRIX_ROOM)->get;
+	$matrix->join_room($MATRIX_ROOM)->get;
 
 $irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
@@ -145,7 +145,7 @@ $irc = Net::Async::IRC->new(
 		my $msg = $hints->{ctcp_args};
 		setup_irc_user($irc_user);
 
-		my $f = $matrix{$irc_user}->then(sub {
+		my $f = $matrix_users{$irc_user}->then(sub {
 			my ($room) = @_;
 			warn "Sending emote $msg\n";
 			$room->send_message(
@@ -165,7 +165,7 @@ $irc = Net::Async::IRC->new(
 		my $msg = $hints->{text};
 		setup_irc_user($irc_user);
 
-		my $f = $matrix{$irc_user}->then(sub {
+		my $f = $matrix_users{$irc_user}->then(sub {
 			my ($room) = @_;
 			warn "Sending text $msg\n";
 			$room->send_message(
@@ -174,6 +174,9 @@ $irc = Net::Async::IRC->new(
 			)
 		});
 		$f->on_ready(sub { undef $f });
+	},
+	on_error => sub {
+		print STDERR "IRC failure: @_\n";
 	},
 );
 
@@ -187,7 +190,6 @@ $f = $irc->login(
 )->then(sub {
 	$irc->send_message( "JOIN", undef, $IRC_CHANNEL);
 })->on_ready(sub { undef $f });
-$main->start;
 
 $loop->attach_signal(
 	PIPE => sub { warn "pipe\n" }
@@ -216,21 +218,23 @@ exit 0;
 # this bit establishes the per-user IRC connection
 sub setup_irc_user {
 	my ($irc_user) = @_;
-	unless(exists $matrix{$irc_user}) {
+	unless(exists $matrix_users{$irc_user}) {
 		if(exists $previous_matrix_users{$irc_user}) {
 			warn "Using prior matrix user for $irc_user";
 			$loop->add(my $mat = Net::Async::Matrix->new(
 				%MATRIX_CONFIG,
-				user_id => $previous_matrix_users{$irc_user}[0],
-				access_token => $previous_matrix_users{$irc_user}[1],
 				on_room_new => sub {
 					my (undef, $room) = @_;
 					warn "Room new thingey appeared: " . $room->name . "\n";
-					# $matrix{$irc_user}->done($room);
+					# $matrix_users{$irc_user}->done($room);
 				}
 			));
+			$mat->login(
+				user_id => $previous_matrix_users{$irc_user}[0],
+				access_token => $previous_matrix_users{$irc_user}[1],
+			);
 			# we need to join before we can send to a room
-			$matrix{$irc_user} = $mat->join_room($MATRIX_ROOM);
+			$matrix_users{$irc_user} = $mat->join_room($MATRIX_ROOM);
 		} else {
 			warn "Creating new matrix user for $irc_user\n";
 			$loop->add(my $m = Net::Async::Matrix->new(
@@ -238,10 +242,10 @@ sub setup_irc_user {
 				on_room_new => sub {
 					my (undef, $room) = @_;
 					warn "Room: " . $room->name . "\n";
-					$matrix{$irc_user}->done($room);
+					$matrix_users{$irc_user}->done($room);
 				}
 			));
-			$matrix{$irc_user} = $m->register(
+			$matrix_users{$irc_user} = $m->register(
 				user_id => $irc_user,
 				password => 'nothing',
 			)->then(sub {
