@@ -2,7 +2,6 @@
 use strict;
 use warnings;
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
-use JSON::MaybeXS;
 use IO::Async::Loop;
 use Net::Async::IRC;
 use Net::Async::Matrix 0.07;
@@ -31,11 +30,6 @@ my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
 # IRC instances corresponding to Matrix IDs
 my %irc;
-
-my $json = JSON::MaybeXS->new(
-	utf8 => 1,
-	pretty => 1
-);
 
 # Predeclare way ahead of time, we may want to be sending messages on this eventually
 my $irc;
