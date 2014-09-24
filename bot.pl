@@ -55,18 +55,25 @@ my $bot_matrix = Net::Async::Matrix->new(
 				# Prefix the IRC username to make it clear they came from Matrix
 				$irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
 
-				my $f = get_or_make_irc_user($irc_user)->then(sub {
-					my ($user_irc) = @_;
-					warn "  [Matrix] sending message for $irc_user - $msg\n";
-					if($msgtype eq 'm.text') {
-						return $user_irc->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
-					} elsif($msgtype eq 'm.emote') {
-						return $user_irc->send_ctcp(undef, $IRC_CHANNEL, "ACTION", $msg);
-					} else {
-						warn "unknown type $msgtype\n";
-					}
-				});
-				$room->adopt_future( $f );
+				my $emote;
+				if( $msgtype eq 'm.text' ) {
+					$emote = 0;
+				}
+				elsif( $msgtype eq 'm.emote' ) {
+					$emote = 1;
+				}
+				else {
+					warn "  [Matrix] Unknown message type '$msgtype' - ignoring";
+					return;
+				}
+
+				warn "  [Matrix] sending message for $irc_user - $msg\n";
+				$room->adopt_future( send_irc_message(
+					irc_user => $irc_user,
+					channel  => $IRC_CHANNEL,
+					message  => $msg,
+					emote    => $emote,
+				));
 			}
 		);
 	},
@@ -86,18 +93,13 @@ my $bot_irc = Net::Async::IRC->new(
 		warn "[IRC] CTCP action in $channel: $msg";
 		return if is_irc_user($hints->{prefix_name});
 
-		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
-			my ($user_matrix) = @_;
-			$user_matrix->join_room($MATRIX_ROOM);
-		})->then( sub {
-			my ($room) = @_;
-			warn "  [IRC] sending emote for $matrix_id - $msg\n";
-			$room->send_message(
-				type => 'm.emote',
-				body => $msg,
-			)
-		});
-		$self->adopt_future( $f );
+		warn "  [IRC] sending emote for $matrix_id - $msg\n";
+		$self->adopt_future( send_matrix_message(
+			matrix_id => $matrix_id,
+			room_id   => $MATRIX_ROOM,
+			type      => 'm.emote',
+			body      => $msg,
+		));
 	},
 	on_message_text => sub {
 		my ( $self, $message, $hints ) = @_;
@@ -109,18 +111,13 @@ my $bot_irc = Net::Async::IRC->new(
 		return if $hints->{is_notice};
 		return if is_irc_user($hints->{prefix_name});
 
-		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
-			my ($user_matrix) = @_;
-			$user_matrix->join_room($MATRIX_ROOM);
-		})->then( sub {
-			my ($room) = @_;
-			warn "  [IRC] sending text for $matrix_id - $msg\n";
-			$room->send_message(
-				type => 'm.text',
-				body => $msg,
-			)
-		});
-		$self->adopt_future( $f );
+		warn "  [IRC] sending text for $matrix_id - $msg\n";
+		$self->adopt_future( send_matrix_message(
+			matrix_id => $matrix_id,
+			room_id   => $MATRIX_ROOM,
+			type      => 'm.text',
+			body      => $msg,
+		));
 	},
 	on_error => sub {
 		print STDERR "IRC failure: @_\n";
@@ -218,6 +215,25 @@ exit 0;
 			warn "[Matrix] new Matrix user ready\n";
 		});
 	}
+
+	sub send_matrix_message
+	{
+		my %args = @_;
+
+		my $type = $args{type};
+		my $body = $args{body};
+
+		get_or_make_matrix_user( $args{matrix_id} )->then( sub {
+			my ($user_matrix) = @_;
+			$user_matrix->join_room($MATRIX_ROOM);
+		})->then( sub {
+			my ($room) = @_;
+			$room->send_message(
+				type => $type,
+				body => $body,
+			)
+		});
+	}
 }
 
 {
@@ -253,6 +269,23 @@ exit 0;
 				->then_done( $user_irc );
 		})->on_done(sub {
 			warn "[IRC] new IRC user ready\n";
+		});
+	}
+
+	sub send_irc_message
+	{
+		my %args = @_;
+
+		my $channel = $args{channel};
+		my $emote   = $args{emote};
+		my $message = $args{message};
+
+		get_or_make_irc_user( $args{irc_user} )->then( sub {
+			my ($user_irc) = @_;
+
+			$emote
+				? $user_irc->send_ctcp( undef, $channel, "ACTION", $message )
+				: $user_irc->send_message( "PRIVMSG", undef, $channel, $message );
 		});
 	}
 }
