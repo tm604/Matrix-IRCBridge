@@ -1,6 +1,7 @@
 #!/usr/bin/env perl 
 use strict;
 use warnings;
+use 5.010; # //
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
@@ -95,10 +96,10 @@ my $bot_irc = Net::Async::IRC->new(
 
 		warn "  [IRC] sending emote for $matrix_id - $msg\n";
 		$self->adopt_future( send_matrix_message(
-			matrix_id => $matrix_id,
-			room_id   => $MATRIX_ROOM,
-			type      => 'm.emote',
-			body      => $msg,
+			user_id => $matrix_id,
+			room_id => $MATRIX_ROOM,
+			type    => 'm.emote',
+			body    => $msg,
 		));
 	},
 	on_message_text => sub {
@@ -113,10 +114,10 @@ my $bot_irc = Net::Async::IRC->new(
 
 		warn "  [IRC] sending text for $matrix_id - $msg\n";
 		$self->adopt_future( send_matrix_message(
-			matrix_id => $matrix_id,
-			room_id   => $MATRIX_ROOM,
-			type      => 'm.text',
-			body      => $msg,
+			user_id => $matrix_id,
+			room_id => $MATRIX_ROOM,
+			type    => 'm.text',
+			body    => $msg,
 		));
 	},
 	on_error => sub {
@@ -216,16 +217,20 @@ exit 0;
 		});
 	}
 
+	my %matrix_user_rooms;
 	sub send_matrix_message
 	{
 		my %args = @_;
 
-		my $type = $args{type};
-		my $body = $args{body};
+		my $user_id = $args{user_id};
+		my $room_id = $args{room_id};
+		my $type    = $args{type};
+		my $body    = $args{body};
 
-		get_or_make_matrix_user( $args{matrix_id} )->then( sub {
+		get_or_make_matrix_user( $user_id )->then( sub {
 			my ($user_matrix) = @_;
-			$user_matrix->join_room($MATRIX_ROOM);
+			return $matrix_user_rooms{$user_id}{$room_id} //=
+				$user_matrix->join_room( $room_id );
 		})->then( sub {
 			my ($room) = @_;
 			$room->send_message(
@@ -264,23 +269,26 @@ exit 0;
 		$irc_users{lc $irc_user} = $user_irc->login(
 			nick => $irc_user,
 			%IRC_CONFIG,
-		)->then(sub {
-			$user_irc->send_message( "JOIN", undef, $IRC_CHANNEL)
-				->then_done( $user_irc );
-		})->on_done(sub {
+		)->on_done(sub {
 			warn "[IRC] new IRC user ready\n";
 		});
 	}
 
+	my %irc_user_channels;
 	sub send_irc_message
 	{
 		my %args = @_;
 
+		my $user    = $args{irc_user};
 		my $channel = $args{channel};
 		my $emote   = $args{emote};
 		my $message = $args{message};
 
-		get_or_make_irc_user( $args{irc_user} )->then( sub {
+		get_or_make_irc_user( $user )->then( sub {
+			my ($user_irc) = @_;
+			return $irc_user_channels{$user}{$channel} //=
+				$user_irc->send_message( "JOIN", undef, $channel )->then_done( $user_irc );
+		})->then( sub {
 			my ($user_irc) = @_;
 
 			$emote
