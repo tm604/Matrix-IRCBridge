@@ -7,6 +7,7 @@ use Net::Async::IRC;
 use Net::Async::Matrix 0.07;
 use YAML;
 use Getopt::Long;
+use Digest::SHA qw( hmac_sha1_base64 );
 
 my $loop = IO::Async::Loop->new;
 
@@ -184,6 +185,10 @@ exit 0;
 	{
 		my ($matrix_id) = @_;
 
+		# Generate a password for this user
+		my $password = hmac_sha1_base64($matrix_id, $CONFIG{"matrix-password-key"});
+		warn "Password for $matrix_id is $password\n";
+
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
 			on_room_new => sub {
@@ -197,14 +202,14 @@ exit 0;
 			# Try to register a new user
 			$user_matrix->register(
 				user_id => $matrix_id,
-				password => 'nothing',
+				password => $password,
 				%{ $CONFIG{"matrix-register"} || {} },
 			)
 		)->else( sub {
 			# If it failed, log in as existing one
 			$user_matrix->login(
 				user_id => $matrix_id,
-				password => 'nothing',
+				password => $password,
 			)
 		})->then( sub {
 			$user_matrix->start->then_done( $user_matrix );
