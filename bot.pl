@@ -34,12 +34,12 @@ my $bot_matrix = Net::Async::Matrix->new(
 	on_log => sub { warn "log: @_\n" },
 	on_room_new => sub {
 		my ($matrix, $room) = @_;
-		warn "Have a room: " . $room->name . "\n";
+		warn "[Matrix] have a room: " . $room->name . "\n";
 
 		$room->configure(
 			on_message => sub {
 				my ($room, $from, $content) = @_;
-				warn "Message in " . $room->name . ": " . $content->{body};
+				warn "[Matrix] in " . $room->name . ": " . $content->{body};
 
 				my $msg = $content->{body};
 				my $msgtype = $content->{msgtype};
@@ -50,18 +50,14 @@ my $bot_matrix = Net::Async::Matrix->new(
 
 				# so this would want to be changed to match on content instead, if we
 				# want users to be able to use IRC and Matrix users interchangeably
-				if($irc_user =~ /^irc_/) {
-					warn "this was a message from an IRC user, ignoring\n";
-					return
-				} 
+				return if $irc_user =~ /^irc_/;
 
 				# Prefix the IRC username to make it clear they came from Matrix
 				$irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
 
-				warn "Queue message for IRC as $irc_user\n";
 				my $f = get_or_make_irc_user($irc_user)->then(sub {
 					my ($user_irc) = @_;
-					warn "sending message for $irc_user - $msg\n";
+					warn "  [Matrix] sending message for $irc_user - $msg\n";
 					if($msgtype eq 'm.text') {
 						return $user_irc->send_message( "PRIVMSG", undef, $IRC_CHANNEL, $msg);
 					} elsif($msgtype eq 'm.emote') {
@@ -83,17 +79,19 @@ $loop->add( $bot_matrix );
 my $bot_irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
 		my ( $self, $message, $hints ) = @_;
-		warn "CTCP action";
-		return if is_irc_user($hints->{prefix_name});
-		warn "we think we should do this one";
+		my $channel = $hints->{target_name};
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
+
+		warn "[IRC] CTCP action in $channel: $msg";
+		return if is_irc_user($hints->{prefix_name});
+
 		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
 			my ($user_matrix) = @_;
 			$user_matrix->join_room($MATRIX_ROOM);
 		})->then( sub {
 			my ($room) = @_;
-			warn "Sending emote $msg\n";
+			warn "  [IRC] sending emote for $matrix_id - $msg\n";
 			$room->send_message(
 				type => 'm.emote',
 				body => $msg,
@@ -103,18 +101,20 @@ my $bot_irc = Net::Async::IRC->new(
 	},
 	on_message_text => sub {
 		my ( $self, $message, $hints ) = @_;
-		warn "text message";
-		return if $hints->{is_notice};
-		return if is_irc_user($hints->{prefix_name});
-		warn "we think we should do this one";
+		my $channel = $hints->{target_name};
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
+
+		warn "[IRC] Text message in $channel: $msg";
+		return if $hints->{is_notice};
+		return if is_irc_user($hints->{prefix_name});
+
 		my $f = get_or_make_matrix_user( $matrix_id )->then(sub {
 			my ($user_matrix) = @_;
 			$user_matrix->join_room($MATRIX_ROOM);
 		})->then( sub {
 			my ($room) = @_;
-			warn "Sending text $msg\n";
+			warn "  [IRC] sending text for $matrix_id - $msg\n";
 			$room->send_message(
 				type => 'm.text',
 				body => $msg,
@@ -185,9 +185,10 @@ exit 0;
 	{
 		my ($matrix_id) = @_;
 
+		warn "[Matrix] making new Matrix user for $matrix_id\n";
+
 		# Generate a password for this user
 		my $password = hmac_sha1_base64($matrix_id, $CONFIG{"matrix-password-key"});
-		warn "Password for $matrix_id is $password\n";
 
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
@@ -214,7 +215,7 @@ exit 0;
 		})->then( sub {
 			$user_matrix->start->then_done( $user_matrix );
 		})->on_done(sub {
-			warn "New Matrix user ready\n";
+			warn "[Matrix] new Matrix user ready\n";
 		});
 	}
 }
@@ -237,7 +238,8 @@ exit 0;
 	{
 		my ($irc_user) = @_;
 
-		warn "Creating new IRC user for $irc_user\n";
+		warn "[IRC] making new IRC user for $irc_user\n";
+
 		my $user_irc = Net::Async::IRC->new(
 			user => $irc_user
 		);
@@ -250,7 +252,7 @@ exit 0;
 			$user_irc->send_message( "JOIN", undef, $IRC_CHANNEL)
 				->then_done( $user_irc );
 		})->on_done(sub {
-			warn "New IRC user ready\n";
+			warn "[IRC] new IRC user ready\n";
 		});
 	}
 }
