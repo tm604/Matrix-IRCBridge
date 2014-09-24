@@ -5,7 +5,7 @@ use 5.010; # //
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix 0.07;
+use Net::Async::Matrix 0.08;
 use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
