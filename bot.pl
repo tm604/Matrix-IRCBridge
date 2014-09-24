@@ -56,7 +56,7 @@ my $bot_matrix = Net::Async::Matrix->new(
 				} 
 
 				# Prefix the IRC username to make it clear they came from Matrix
-				$irc_user = "Mx-$irc_user";
+				$irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
 
 				warn "Queue message for IRC as $irc_user\n";
 				my $f = get_or_make_irc_user($irc_user)->then(sub {
