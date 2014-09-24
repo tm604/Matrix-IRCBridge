@@ -42,18 +42,10 @@ my $bot_matrix = Net::Async::Matrix->new(
 	on_room_new => sub {
 		my ($matrix, $room) = @_;
 
-		# We need the room name but we can't get that until it's synced
+		warn "[Matrix] have a room ID: " . $room->room_id . "\n";
+
 		$room->configure(
-			on_synced_state => sub {
-				my ($room) = @_;
-
-				$CHANNEL_FOR_ROOM{$room->name} or return;
-				warn "[Matrix] have a room: " . $room->name . "\n";
-
-				$room->configure(
-					on_message => \&on_room_message,
-				);
-			},
+			on_message => \&on_room_message,
 		);
 	},
 	on_error => sub {
@@ -62,13 +54,18 @@ my $bot_matrix = Net::Async::Matrix->new(
 );
 $loop->add( $bot_matrix );
 
+# Incoming Matrix room messages only have the (opaque) room ID, so we'll need
+# to remember what alias we joined those rooms by
+my %room_alias_for_id;
+
 sub on_room_message
 {
 	my ($room, $from, $content) = @_;
 
-	my $irc_channel = $CHANNEL_FOR_ROOM{$room->name};
+	my $room_alias = $room_alias_for_id{$room->room_id} or return;
+	warn "[Matrix] in $room_alias: " . $content->{body};
 
-	warn "[Matrix] in " . $room->name . ": " . $content->{body};
+	my $irc_channel = $CHANNEL_FOR_ROOM{$room_alias} or return;
 
 	my $msg = $content->{body};
 	my $msgtype = $content->{msgtype};
@@ -159,9 +156,11 @@ Future->needs_all(
 		$bot_matrix->start;
 	})->then( sub {
 		Future->wait_all( map {
-			$bot_matrix->join_room($_)->on_done( sub {
+			my $room_alias = $_;
+			$bot_matrix->join_room($room_alias)->on_done( sub {
 				my ( $room ) = @_;
 				push @all_matrix_rooms, $room;
+				$room_alias_for_id{$room->room_id} = $room_alias;
 			})
 		} values %ROOM_FOR_CHANNEL );
 	}),
