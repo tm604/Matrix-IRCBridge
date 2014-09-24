@@ -24,58 +24,36 @@ my %MATRIX_CONFIG = %{ $CONFIG{matrix} };
 # No harm in always applying this
 $MATRIX_CONFIG{SSL_verify_mode} = SSL_VERIFY_NONE;
 
-my $MATRIX_ROOM = $CONFIG{bridge}{"matrix-room"};
+my %ROOM_FOR_CHANNEL;
+my %CHANNEL_FOR_ROOM;
+foreach ( @{ $CONFIG{bridge} } ) {
+	my $room    = $_->{"matrix-room"};
+	my $channel = $_->{"irc-channel"};
+
+	$ROOM_FOR_CHANNEL{$channel} = $room;
+	$CHANNEL_FOR_ROOM{$room} = $channel;
+}
 
 my %IRC_CONFIG = %{ $CONFIG{irc} };
-
-my $IRC_CHANNEL = $CONFIG{bridge}{"irc-channel"};
 
 my $bot_matrix = Net::Async::Matrix->new(
 	%MATRIX_CONFIG,
 	on_log => sub { warn "log: @_\n" },
 	on_room_new => sub {
 		my ($matrix, $room) = @_;
-		warn "[Matrix] have a room: " . $room->name . "\n";
 
+		# We need the room name but we can't get that until it's synced
 		$room->configure(
-			on_message => sub {
-				my ($room, $from, $content) = @_;
-				warn "[Matrix] in " . $room->name . ": " . $content->{body};
+			on_synced_state => sub {
+				my ($room) = @_;
 
-				my $msg = $content->{body};
-				my $msgtype = $content->{msgtype};
+				$CHANNEL_FOR_ROOM{$room->name} or return;
+				warn "[Matrix] have a room: " . $room->name . "\n";
 
-				# Mangle the Matrix user_id into something that might work on an IRC channel
-				my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
-				$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
-
-				# so this would want to be changed to match on content instead, if we
-				# want users to be able to use IRC and Matrix users interchangeably
-				return if $irc_user =~ /^irc_/;
-
-				# Prefix the IRC username to make it clear they came from Matrix
-				$irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
-
-				my $emote;
-				if( $msgtype eq 'm.text' ) {
-					$emote = 0;
-				}
-				elsif( $msgtype eq 'm.emote' ) {
-					$emote = 1;
-				}
-				else {
-					warn "  [Matrix] Unknown message type '$msgtype' - ignoring";
-					return;
-				}
-
-				warn "  [Matrix] sending message for $irc_user - $msg\n";
-				$room->adopt_future( send_irc_message(
-					irc_user => $irc_user,
-					channel  => $IRC_CHANNEL,
-					message  => $msg,
-					emote    => $emote,
-				));
-			}
+				$room->configure(
+					on_message => \&on_room_message,
+				);
+			},
 		);
 	},
 	on_error => sub {
@@ -84,10 +62,55 @@ my $bot_matrix = Net::Async::Matrix->new(
 );
 $loop->add( $bot_matrix );
 
+sub on_room_message
+{
+	my ($room, $from, $content) = @_;
+
+	my $irc_channel = $CHANNEL_FOR_ROOM{$room->name};
+
+	warn "[Matrix] in " . $room->name . ": " . $content->{body};
+
+	my $msg = $content->{body};
+	my $msgtype = $content->{msgtype};
+
+	# Mangle the Matrix user_id into something that might work on an IRC channel
+	my ($irc_user) = $from->user->user_id =~ /^\@([^:]+):/;
+	$irc_user =~ s{[^a-z0-9A-Z]+}{_}g;
+
+	# so this would want to be changed to match on content instead, if we
+	# want users to be able to use IRC and Matrix users interchangeably
+	return if $irc_user =~ /^irc_/;
+
+	# Prefix the IRC username to make it clear they came from Matrix
+	$irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
+
+	my $emote;
+	if( $msgtype eq 'm.text' ) {
+		$emote = 0;
+	}
+	elsif( $msgtype eq 'm.emote' ) {
+		$emote = 1;
+	}
+	else {
+		warn "  [Matrix] Unknown message type '$msgtype' - ignoring";
+		return;
+	}
+
+	warn "  [Matrix] sending message for $irc_user - $msg\n";
+	$room->adopt_future( send_irc_message(
+		irc_user => $irc_user,
+		channel  => $irc_channel,
+		message  => $msg,
+		emote    => $emote,
+	));
+}
+
 my $bot_irc = Net::Async::IRC->new(
 	on_message_ctcp_ACTION => sub {
 		my ( $self, $message, $hints ) = @_;
 		my $channel = $hints->{target_name};
+		my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
+
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
 
@@ -97,7 +120,7 @@ my $bot_irc = Net::Async::IRC->new(
 		warn "  [IRC] sending emote for $matrix_id - $msg\n";
 		$self->adopt_future( send_matrix_message(
 			user_id => $matrix_id,
-			room_id => $MATRIX_ROOM,
+			room_id => $matrix_room,
 			type    => 'm.emote',
 			body    => $msg,
 		));
@@ -105,6 +128,8 @@ my $bot_irc = Net::Async::IRC->new(
 	on_message_text => sub {
 		my ( $self, $message, $hints ) = @_;
 		my $channel = $hints->{target_name};
+		my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
+
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
 
@@ -115,7 +140,7 @@ my $bot_irc = Net::Async::IRC->new(
 		warn "  [IRC] sending text for $matrix_id - $msg\n";
 		$self->adopt_future( send_matrix_message(
 			user_id => $matrix_id,
-			room_id => $MATRIX_ROOM,
+			room_id => $matrix_room,
 			type    => 'm.text',
 			body    => $msg,
 		));
@@ -133,14 +158,18 @@ Future->needs_all(
 	$bot_matrix->login( %{ $CONFIG{"matrix-bot"} } )->then( sub {
 		$bot_matrix->start;
 	})->then( sub {
-		$bot_matrix->join_room($MATRIX_ROOM)
-	})->on_done( sub {
-		my ( $room ) = @_;
-		push @all_matrix_rooms, $room;
+		Future->wait_all( map {
+			$bot_matrix->join_room($_)->on_done( sub {
+				my ( $room ) = @_;
+				push @all_matrix_rooms, $room;
+			})
+		} values %ROOM_FOR_CHANNEL );
 	}),
 
 	$bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
-		$bot_irc->send_message( "JOIN", undef, $IRC_CHANNEL);
+		Future->wait_all( map {
+			$bot_irc->send_message( "JOIN", undef, $_);
+		} values %CHANNEL_FOR_ROOM );
 	}),
 )->get;
 
