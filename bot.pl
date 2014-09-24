@@ -111,7 +111,7 @@ my $bot_irc = Net::Async::IRC->new(
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{ctcp_args};
 
-		warn "[IRC] CTCP action in $channel: $msg";
+		warn "[IRC] CTCP action in $channel: $msg\n";
 		return if is_irc_user($hints->{prefix_name});
 
 		warn "  [IRC] sending emote for $matrix_id - $msg\n";
@@ -130,7 +130,7 @@ my $bot_irc = Net::Async::IRC->new(
 		my $matrix_id = "irc_" . $hints->{prefix_name};
 		my $msg = $hints->{text};
 
-		warn "[IRC] Text message in $channel: $msg";
+		warn "[IRC] Text message in $channel: $msg\n";
 		return if $hints->{is_notice};
 		return if is_irc_user($hints->{prefix_name});
 
