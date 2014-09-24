@@ -63,7 +63,7 @@ sub on_room_message
 	my ($room, $from, $content) = @_;
 
 	my $room_alias = $room_alias_for_id{$room->room_id} or return;
-	warn "[Matrix] in $room_alias: " . $content->{body};
+	warn "[Matrix] in $room_alias: " . $content->{body} . "\n";
 
 	my $irc_channel = $CHANNEL_FOR_ROOM{$room_alias} or return;
 
