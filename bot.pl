@@ -143,7 +143,15 @@ my $bot_irc = Net::Async::IRC->new(
 		));
 	},
 	on_error => sub {
-		print STDERR "IRC failure: @_\n";
+		my ( undef, $failure, $name, @args ) = @_;
+		print STDERR "IRC failure: $failure\n";
+		if( defined $name and $name eq "http" ) {
+			my ($response, $request) = @args;
+			print STDERR "HTTP failure details:\n" .
+				"Requested URL: ${\$request->method} ${\$request->uri}\n" .
+				"Response ${\$response->status_line}\n";
+			print STDERR " | $_\n" for split m/\n/, $response->decoded_content;
+		}
 	},
 );
 $loop->add( $bot_irc );
@@ -242,6 +250,9 @@ exit 0;
 			$user_matrix->start->then_done( $user_matrix );
 		})->on_done(sub {
 			warn "[Matrix] new Matrix user ready\n";
+		})->on_fail(sub {
+			my ($failure) = @_;
+			warn "[Matrix] failed to register or login for new user - $failure\n";
 		});
 	}
 
