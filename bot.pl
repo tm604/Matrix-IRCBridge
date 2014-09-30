@@ -234,17 +234,20 @@ exit 0;
 		$bot_matrix->add_child( $user_matrix );
 
 		return $matrix_users{$matrix_id} = (
-			# Try to register a new user
+			# Try first to log in as an existing user
+			$user_matrix->login(
+				user_id => $matrix_id,
+				password => $password,
+			)
+		)->else( sub {
+			my ($failure) = @_;
+			warn "[Matrix] login as existing user failed - $failure\n";
+
+			# If it failed, try to register an account
 			$user_matrix->register(
 				user_id => $matrix_id,
 				password => $password,
 				%{ $CONFIG{"matrix-register"} || {} },
-			)
-		)->else( sub {
-			# If it failed, log in as existing one
-			$user_matrix->login(
-				user_id => $matrix_id,
-				password => $password,
 			)
 		})->then( sub {
 			$user_matrix->start->then_done( $user_matrix );
