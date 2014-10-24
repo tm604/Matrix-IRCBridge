@@ -10,6 +10,9 @@ use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
 
+binmode STDOUT, ":encoding(UTF-8)";
+binmode STDERR, ":encoding(UTF-8)";
+
 my $loop = IO::Async::Loop->new;
 
 GetOptions(
@@ -103,6 +106,7 @@ sub on_room_message
 }
 
 my $bot_irc = Net::Async::IRC->new(
+    encoding => "UTF-8",
 	on_message_ctcp_ACTION => sub {
 		my ( $self, $message, $hints ) = @_;
 		my $channel = $hints->{target_name};
@@ -304,6 +308,7 @@ exit 0;
 		warn "[IRC] making new IRC user for $irc_user\n";
 
 		my $user_irc = Net::Async::IRC->new(
+			encoding => "UTF-8",
 			user => $irc_user
 		);
 		$bot_irc->add_child( $user_irc );
