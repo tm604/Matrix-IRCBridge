@@ -10,6 +10,8 @@ use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
 
+use constant MAX_IRC_LINE => 460; # Some number comfortably away from 512
+
 binmode STDOUT, ":encoding(UTF-8)";
 binmode STDERR, ":encoding(UTF-8)";
 
@@ -100,13 +102,19 @@ sub on_room_message
 		return;
 	}
 
-	warn "  [Matrix] sending message for $irc_user - $msg\n";
-	$room->adopt_future( send_irc_message(
-		irc_user => $irc_user,
-		channel  => $irc_channel,
-		message  => $msg,
-		emote    => $emote,
-	));
+	# IRC cannot cope with linefeeds
+	foreach my $line ( split m/\n/, $msg ) {
+		$line = substr( $line, 0, MAX_IRC_LINE-3 ) . "..." if
+			length( $line ) > MAX_IRC_LINE;
+
+		warn "  [Matrix] sending message for $irc_user - $line\n";
+		$room->adopt_future( send_irc_message(
+			irc_user => $irc_user,
+			channel  => $irc_channel,
+			message  => $line,
+			emote    => $emote,
+		));
+	}
 }
 
 my $bot_irc = Net::Async::IRC->new(
