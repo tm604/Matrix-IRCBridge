@@ -14,6 +14,10 @@ binmode STDOUT, ":encoding(UTF-8)";
 binmode STDERR, ":encoding(UTF-8)";
 
 my $loop = IO::Async::Loop->new;
+# Net::Async::HTTP + SSL + IO::Poll doesn't play well. See
+#   https://rt.cpan.org/Ticket/Display.html?id=93107
+ref $loop eq "IO::Async::Loop::Poll" and
+	warn "Using SSL with IO::Poll causes known memory-leaks!!\n";
 
 GetOptions(
    'C|config=s' => \my $CONFIG,
