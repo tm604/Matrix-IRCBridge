@@ -34,6 +34,7 @@ my %MATRIX_CONFIG = %{ $CONFIG{matrix} };
 $MATRIX_CONFIG{SSL_verify_mode} = SSL_VERIFY_NONE;
 
 my %ROOM_FOR_CHANNEL;
+my %ROOM_NEEDS_INVITE;
 my %CHANNEL_FOR_ROOM;
 foreach ( @{ $CONFIG{bridge} } ) {
 	my $room    = $_->{"matrix-room"};
@@ -41,6 +42,8 @@ foreach ( @{ $CONFIG{bridge} } ) {
 
 	$ROOM_FOR_CHANNEL{$channel} = $room;
 	$CHANNEL_FOR_ROOM{$room} = $channel;
+
+	$ROOM_NEEDS_INVITE{$room}++ if $_->{"matrix-needs-invite"};
 }
 
 my %IRC_CONFIG = %{ $CONFIG{irc} };
@@ -173,7 +176,7 @@ my $bot_irc = Net::Async::IRC->new(
 $loop->add( $bot_irc );
 
 # Track every Room object, so we can ->leave them all on shutdown
-my @bot_matrix_rooms;
+my %bot_matrix_rooms;
 my @user_matrix_rooms;
 
 Future->needs_all(
@@ -184,7 +187,7 @@ Future->needs_all(
 			my $room_alias = $_;
 			$bot_matrix->join_room($room_alias)->on_done( sub {
 				my ( $room ) = @_;
-				push @bot_matrix_rooms, $room;
+				$bot_matrix_rooms{$room_alias} = $room;
 				$room_alias_for_id{$room->room_id} = $room_alias;
 			})
 		} values %ROOM_FOR_CHANNEL );
@@ -217,7 +220,7 @@ Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
 
 if( $CONFIG{"leave-on-shutdown"} // 1 ) {
 	print STDERR "Removing bot from Matrix rooms...\n";
-	Future->wait_all( map { $_->leave->else_done() } @bot_matrix_rooms )->get;
+	Future->wait_all( map { $_->leave->else_done() } values %bot_matrix_rooms )->get;
 }
 else {
 	print STDERR "Leaving bot users in Matrix rooms.\n";
@@ -285,6 +288,18 @@ exit 0;
 		});
 	}
 
+	sub _join_matrix_user_to_room
+	{
+		my ($user_matrix, $room_id) = @_;
+
+		( $ROOM_NEEDS_INVITE{$room_id} ?
+			$bot_matrix_rooms{$room_id}->invite( $user_matrix->myself->user_id ) :
+			Future->done
+		)->then( sub {
+			$user_matrix->join_room( $room_id );
+		});
+	}
+
 	my %matrix_user_rooms;
 	sub send_matrix_message
 	{
@@ -297,8 +312,7 @@ exit 0;
 
 		get_or_make_matrix_user( $user_id )->then( sub {
 			my ($user_matrix) = @_;
-			return $matrix_user_rooms{$user_id}{$room_id} //=
-				$user_matrix->join_room( $room_id );
+			return $matrix_user_rooms{$user_id}{$room_id} //= _join_matrix_user_to_room($user_matrix, $room_id);
 		})->then( sub {
 			my ($room) = @_;
 			$room->send_message(
