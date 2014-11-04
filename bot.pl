@@ -5,7 +5,7 @@ use 5.010; # //
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix 0.09; # $room->invite
+use Net::Async::Matrix 0.10; # $room->invite; ->join_room bugfix
 use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
