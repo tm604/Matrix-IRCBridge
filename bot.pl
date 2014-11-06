@@ -302,7 +302,9 @@ exit 0;
         my ($user_matrix, $room_id) = @_;
 
         ( $ROOM_NEEDS_INVITE{$room_id} ?
-            $bot_matrix_rooms{$room_id}->invite( $user_matrix->myself->user_id ) :
+            # Inviting an existing member causes an error; we'll have to ignore it
+            $bot_matrix_rooms{$room_id}->invite( $user_matrix->myself->user_id )
+                ->else_done() : # TODO(paul): a finer-grained error ignoring condition
             Future->done
         )->then( sub {
             $user_matrix->join_room( $room_id );
