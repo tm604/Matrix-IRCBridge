@@ -255,10 +255,6 @@ exit 0;
 
 		my $user_matrix = Net::Async::Matrix->new(
 			%MATRIX_CONFIG,
-			on_room_new => sub {
-				my ($user_matrix, $room) = @_;
-				push @user_matrix_rooms, $room;
-			},
 		);
 		$bot_matrix->add_child( $user_matrix );
 
@@ -297,6 +293,9 @@ exit 0;
 			Future->done
 		)->then( sub {
 			$user_matrix->join_room( $room_id );
+		})->on_done( sub {
+			my ( $room ) = @_;
+			push @user_matrix_rooms, $room;
 		});
 	}
 
