@@ -338,7 +338,7 @@ exit 0;
 }
 
 {
-    my %irc_users;
+    my %irc_users; # {lc $user_name} = Future of $user_irc
     sub get_or_make_irc_user
     {
         my ($irc_user) = @_;
@@ -370,6 +370,10 @@ exit 0;
                 my $kicked_is_me = $user_irc->is_nick_me( $hints->{kicked_nick} );
 
                 _on_irc_kicked( $user_name, $hints->{target_name} ) if $kicked_is_me;
+            },
+
+            on_closed => sub {
+                _on_irc_closed( $user_name );
             },
         );
         $bot_irc->add_child( $user_irc );
@@ -411,5 +415,14 @@ exit 0;
         warn "[IRC] user $user_name got kicked from $channel_name\n";
 
         delete $irc_user_channels{$user_name}{$channel_name};
+    }
+
+    sub _on_irc_closed
+    {
+        my ($user_name) = @_;
+        warn "[IRC] user $user_name connection lost\n";
+
+        delete $irc_user_channels{$user_name};
+        delete $irc_users{lc $user_name};
     }
 }
