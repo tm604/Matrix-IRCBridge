@@ -353,25 +353,36 @@ exit 0;
 
     sub _make_irc_user
     {
-        my ($irc_user) = @_;
+        my ($user_name) = @_;
 
-        warn "[IRC] making new IRC user for $irc_user\n";
+        warn "[IRC] making new IRC user for $user_name\n";
+
+        use Data::Dump 'pp';
 
         my $user_irc = Net::Async::IRC->new(
             encoding => "UTF-8",
-            user => $irc_user
+            user => $user_name,
+
+            on_message_KICK => sub {
+                my ( $user_irc, $message, $hints ) = @_;
+
+                # TODO: Get NaIRC to add kicked_is_me hint
+                my $kicked_is_me = $user_irc->is_nick_me( $hints->{kicked_nick} );
+
+                _on_irc_kicked( $user_name, $hints->{target_name} ) if $kicked_is_me;
+            },
         );
         $bot_irc->add_child( $user_irc );
 
-        $irc_users{lc $irc_user} = $user_irc->login(
-            nick => $irc_user,
+        $irc_users{lc $user_name} = $user_irc->login(
+            nick => $user_name,
             %IRC_CONFIG,
         )->on_done(sub {
             warn "[IRC] new IRC user ready\n";
         });
     }
 
-    my %irc_user_channels;
+    my %irc_user_channels; # {$user_name}{$channel_name} = Future of $user_irc
     sub send_irc_message
     {
         my %args = @_;
@@ -392,5 +403,13 @@ exit 0;
                 ? $user_irc->send_ctcp( undef, $channel, "ACTION", $message )
                 : $user_irc->send_message( "PRIVMSG", undef, $channel, $message );
         });
+    }
+
+    sub _on_irc_kicked
+    {
+        my ($user_name, $channel_name) = @_;
+        warn "[IRC] user $user_name got kicked from $channel_name\n";
+
+        delete $irc_user_channels{$user_name}{$channel_name};
     }
 }
