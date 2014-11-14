@@ -6,9 +6,11 @@ use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
 use Net::Async::Matrix 0.10; # $room->invite; ->join_room bugfix
+use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
 use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
+use String::Tagged::IRC 0.02; # Formatting
 
 use constant MAX_IRC_LINE => 460; # Some number comfortably away from 512
 
@@ -92,7 +94,7 @@ sub on_room_message
 
     my $irc_channel = $CHANNEL_FOR_ROOM{$room_alias} or return;
 
-    my $msg = $content->{body};
+    my $msg = parse_formatted_message( $content );
     my $msgtype = $content->{msgtype};
 
     # Mangle the Matrix user_id into something that might work on an IRC channel
@@ -119,7 +121,7 @@ sub on_room_message
     }
 
     # IRC cannot cope with linefeeds
-    foreach my $line ( split m/\n/, $msg ) {
+    foreach my $line ( $msg->split( qr/\n/ ) ) {
         $line = substr( $line, 0, MAX_IRC_LINE-3 ) . "..." if
             length( $line ) > MAX_IRC_LINE;
 
@@ -141,7 +143,7 @@ my $bot_irc = Net::Async::IRC->new(
         my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
 
         my $matrix_id = "irc_" . $hints->{prefix_name};
-        my $msg = $hints->{ctcp_args};
+        my $msg = String::Tagged::IRC->parse_irc( $hints->{ctcp_args} );
 
         warn "[IRC] CTCP action in $channel: $msg\n";
         return if is_irc_user($hints->{prefix_name});
@@ -151,7 +153,7 @@ my $bot_irc = Net::Async::IRC->new(
             user_id => $matrix_id,
             room_id => $matrix_room,
             type    => 'm.emote',
-            body    => $msg,
+            message => $msg->as_formatted,
         ));
     },
     on_message_text => sub {
@@ -160,7 +162,7 @@ my $bot_irc = Net::Async::IRC->new(
         my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
 
         my $matrix_id = "irc_" . $hints->{prefix_name};
-        my $msg = $hints->{text};
+        my $msg = String::Tagged::IRC->parse_irc( $hints->{text} );
 
         warn "[IRC] Text message in $channel: $msg\n";
         return if $hints->{is_notice};
@@ -171,7 +173,7 @@ my $bot_irc = Net::Async::IRC->new(
             user_id => $matrix_id,
             room_id => $matrix_room,
             type    => 'm.text',
-            body    => $msg,
+            message => $msg->as_formatted,
         ));
     },
     on_error => sub {
@@ -322,7 +324,7 @@ exit 0;
         my $user_id = $args{user_id};
         my $room_id = $args{room_id};
         my $type    = $args{type};
-        my $body    = $args{body};
+        my $message = $args{message};
 
         get_or_make_matrix_user( $user_id )->then( sub {
             my ($user_matrix) = @_;
@@ -331,7 +333,7 @@ exit 0;
             my ($room) = @_;
             $room->send_message(
                 type => $type,
-                body => $body,
+                %{ build_formatted_message( $message ) },
             )
         });
     }
@@ -403,9 +405,13 @@ exit 0;
         })->then( sub {
             my ($user_irc) = @_;
 
+            my $rawmessage = ref $message ?
+                String::Tagged::IRC->new_from_formatted( $message )->build_irc :
+                $message;
+
             $emote
-                ? $user_irc->send_ctcp( undef, $channel, "ACTION", $message )
-                : $user_irc->send_message( "PRIVMSG", undef, $channel, $message );
+                ? $user_irc->send_ctcp( undef, $channel, "ACTION", $rawmessage )
+                : $user_irc->send_message( "PRIVMSG", undef, $channel, $rawmessage );
         });
     }
 
