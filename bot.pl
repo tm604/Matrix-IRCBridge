@@ -115,6 +115,15 @@ sub on_room_message
     elsif( $msgtype eq 'm.emote' ) {
         $emote = 1;
     }
+    elsif( $msgtype eq 'm.image' ) {
+        # We can't directly post an image URL onto IRC as the ghost user,
+        # without it being unspoofable. Instead we'll have the bot user
+        # /itself/ report on this fact
+        $room->adopt_future( send_irc_as_bot(
+            channel => $irc_channel,
+            message => "<$irc_user> posted image: $content->{url}",
+        ) );
+    }
     else {
         warn "  [Matrix] Unknown message type '$msgtype' - ignoring";
         return;
@@ -413,6 +422,23 @@ exit 0;
                 ? $user_irc->send_ctcp( undef, $channel, "ACTION", $rawmessage )
                 : $user_irc->send_message( "PRIVMSG", undef, $channel, $rawmessage );
         });
+    }
+
+    sub send_irc_as_bot
+    {
+        my %args = @_;
+
+        my $channel = $args{channel};
+        my $emote   = $args{emote};
+        my $message = $args{message};
+
+        my $rawmessage = ref $message ?
+            String::Tagged::IRC->new_from_formatted( $message )->build_irc :
+            $message;
+
+        $emote
+            ? $bot_irc->send_ctcp( undef, $channel, "ACTION", $rawmessage )
+            : $bot_irc->send_message( "PRIVMSG", undef, $channel, $rawmessage );
     }
 
     sub _on_irc_kicked
