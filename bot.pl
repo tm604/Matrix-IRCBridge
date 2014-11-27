@@ -7,7 +7,7 @@ use IO::Async::Loop;
 use Net::Async::IRC;
 use Net::Async::Matrix 0.10; # $room->invite; ->join_room bugfix
 use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
-use JSON qw( decode_json );
+use JSON;
 use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
@@ -357,7 +357,7 @@ exit 0;
             return unless @_ > 1 and $_[1] eq "http";
             my $resp = $_[2];
             return unless $resp->code == 403;
-            my $err = eval { decode_json $resp->content } or return;
+            my $err = eval { JSON->new->decode( $resp->decoded_content ) } or return;
             $err->{error} =~ m/^User \S+ not in room \Q$room_id\E/ or return;
 
             # Send failed because user wasn't in the room
