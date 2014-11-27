@@ -7,6 +7,7 @@ use IO::Async::Loop;
 use Net::Async::IRC;
 use Net::Async::Matrix 0.10; # $room->invite; ->join_room bugfix
 use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
+use JSON qw( decode_json );
 use YAML;
 use Getopt::Long;
 use Digest::SHA qw( hmac_sha1_base64 );
@@ -344,6 +345,24 @@ exit 0;
                 type => $type,
                 %{ build_formatted_message( $message ) },
             )
+        })->on_fail( sub {
+            my ( $failure ) = @_;
+            # If the ghost user isn't actually in the room, or was kicked and
+            # we didn't notice (TODO: notice kicks), then this send will fail.
+            # We won't bother retrying this but we should at least forget the
+            # ghost's membership in the room, so next attempt will try to join
+            # again.
+
+            # SPEC TODO: we really need a nicer way to determine this.
+            return unless @_ > 1 and $_[1] eq "http";
+            my $resp = $_[2];
+            return unless $resp->code == 403;
+            my $err = eval { decode_json $resp->content } or return;
+            $err->{error} =~ m/^User \S+ not in room \Q$room_id\E/ or return;
+
+            # Send failed because user wasn't in the room
+            warn "[Matrix] User isn't in the room after all\n";
+            delete $matrix_user_rooms{$user_id}{$room_id};
         });
     }
 }
