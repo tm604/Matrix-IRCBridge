@@ -77,7 +77,15 @@ my $bot_matrix = Net::Async::Matrix->new(
         );
     },
     on_error => sub {
-        print STDERR "Matrix failure: @_\n";
+        my ( undef, $failure, $name, @args ) = @_;
+        print STDERR "Matrix failure: $failure\n";
+        if( defined $name and $name eq "http" ) {
+            my ($response, $request) = @args;
+            print STDERR "HTTP failure details:\n" .
+                "Requested URL: ${\$request->method} ${\$request->uri}\n" .
+                "Response ${\$response->status_line}\n";
+            print STDERR " | $_\n" for split m/\n/, $response->decoded_content;
+        }
     },
 );
 $loop->add( $bot_matrix );
