@@ -168,10 +168,11 @@ my $bot_irc = Net::Async::IRC->new(
 
         warn "  [IRC] sending emote for $matrix_id - $msg\n";
         $self->adopt_future( send_matrix_message(
-            user_id => $matrix_id,
-            room_id => $matrix_room,
-            type    => 'm.emote',
-            message => $msg->as_formatted,
+            user_id     => $matrix_id,
+            displayname => "(IRC $hints->{prefix_nick})",
+            room_id     => $matrix_room,
+            type        => 'm.emote',
+            message     => $msg->as_formatted,
         ));
     },
     on_message_text => sub {
@@ -188,10 +189,11 @@ my $bot_irc = Net::Async::IRC->new(
 
         warn "  [IRC] sending text for $matrix_id - $msg\n";
         $self->adopt_future( send_matrix_message(
-            user_id => $matrix_id,
-            room_id => $matrix_room,
-            type    => 'm.text',
-            message => $msg->as_formatted,
+            user_id     => $matrix_id,
+            displayname => "(IRC $hints->{prefix_nick})",
+            room_id     => $matrix_room,
+            type        => 'm.text',
+            message     => $msg->as_formatted,
         ));
     },
     on_error => sub {
@@ -267,8 +269,8 @@ exit 0;
     my %matrix_users;
     sub get_or_make_matrix_user
     {
-        my ($matrix_id) = @_;
-        return $matrix_users{$matrix_id} ||= _make_matrix_user($matrix_id);
+        my ($matrix_id, $displayname) = @_;
+        return $matrix_users{$matrix_id} ||= _make_matrix_user($matrix_id, $displayname);
     }
 
     sub is_matrix_user
@@ -279,7 +281,7 @@ exit 0;
 
     sub _make_matrix_user
     {
-        my ($matrix_id) = @_;
+        my ($matrix_id, $displayname) = @_;
 
         warn "[Matrix] making new Matrix user for $matrix_id\n";
 
@@ -307,6 +309,8 @@ exit 0;
                 password => $password,
                 %{ $CONFIG{"matrix-register"} || {} },
             )
+        })->then( sub {
+            $user_matrix->set_displayname( $displayname );
         })->then( sub {
             $user_matrix->start->then_done( $user_matrix );
         })->on_done(sub {
@@ -344,7 +348,7 @@ exit 0;
         my $type    = $args{type};
         my $message = $args{message};
 
-        get_or_make_matrix_user( $user_id )->then( sub {
+        get_or_make_matrix_user( $user_id, $args{displayname} )->then( sub {
             my ($user_matrix) = @_;
             return $matrix_user_rooms{$user_id}{$room_id} //= _join_matrix_user_to_room($user_matrix, $room_id);
         })->then( sub {
