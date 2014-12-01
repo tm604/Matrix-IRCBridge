@@ -244,26 +244,27 @@ $loop->attach_signal(
 $loop->attach_signal(
     TERM => sub { $loop->stop },
 );
-eval {
-   $loop->run;
-} or my $e = $@;
 
-# When the bot gets shut down, have it leave the rooms so it's clear to observers
-# that it is no longer running.
-print STDERR "Removing ghost users from Matrix rooms...\n";
-Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
+my $running = 1;
+$loop->run;
 
-if( $CONFIG{"leave-on-shutdown"} // 1 ) {
-    print STDERR "Removing bot from Matrix rooms...\n";
-    Future->wait_all( map { $_->leave->else_done() } values %bot_matrix_rooms )->get;
+END {
+    return unless $running;
+
+    # When the bot gets shut down, have it leave the rooms so it's clear to observers
+    # that it is no longer running.
+    print STDERR "Removing ghost users from Matrix rooms...\n";
+    Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
+
+    if( $CONFIG{"leave-on-shutdown"} // 1 ) {
+        print STDERR "Removing bot from Matrix rooms...\n";
+        Future->wait_all( map { $_->leave->else_done() } values %bot_matrix_rooms )->get;
+    }
+    else {
+        print STDERR "Leaving bot users in Matrix rooms.\n";
+    }
 }
-else {
-    print STDERR "Leaving bot users in Matrix rooms.\n";
-}
 
-die $e if $e;
-
-exit 0;
 
 {
     my %matrix_users;
