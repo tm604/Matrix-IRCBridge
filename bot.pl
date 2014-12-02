@@ -371,7 +371,7 @@ END {
             my $resp = $_[2];
             return unless $resp->code == 403;
             my $err = eval { JSON->new->decode( $resp->decoded_content ) } or return;
-            $err->{error} =~ m/^User \S+ not in room \Q$room_id\E/ or return;
+            $err->{error} =~ m/^User \S+ not in room / or return;
 
             # Send failed because user wasn't in the room
             warn "[Matrix] User isn't in the room after all\n";
