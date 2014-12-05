@@ -158,12 +158,16 @@ sub on_room_message
     }
 }
 
+my $reconnect_delay = 5;
+
 my $bot_irc = Net::Async::IRC->new(
     encoding => "UTF-8",
     on_message_ctcp_ACTION => sub {
         my ( $self, $message, $hints ) = @_;
         my $channel = $hints->{target_name};
         my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
+
+        $reconnect_delay = 5;
 
         my $matrix_id = "irc_" . $hints->{prefix_name};
         my $msg = String::Tagged::IRC->parse_irc( $hints->{ctcp_args} );
@@ -184,6 +188,8 @@ my $bot_irc = Net::Async::IRC->new(
         my ( $self, $message, $hints ) = @_;
         my $channel = $hints->{target_name};
         my $matrix_room = $ROOM_FOR_CHANNEL{$channel} or return;
+
+        $reconnect_delay = 5;
 
         my $matrix_id = "irc_" . $hints->{prefix_name};
         my $msg = String::Tagged::IRC->parse_irc( $hints->{text} );
@@ -212,8 +218,26 @@ my $bot_irc = Net::Async::IRC->new(
             print STDERR " | $_\n" for split m/\n/, $response->decoded_content;
         }
     },
+    on_closed => sub {
+        my ( $self ) = @_;
+
+        $loop->delay_future( after => $reconnect_delay )->then( sub {
+            $reconnect_delay *= 2 if $reconnect_delay < 300; # ramp up to 5 minutes
+
+            $self->adopt_future( connect_irc() );
+        });
+    },
 );
 $loop->add( $bot_irc );
+
+sub connect_irc
+{
+    $bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
+        Future->wait_all( map {
+            $bot_irc->send_message( "JOIN", undef, $_);
+        } values %CHANNEL_FOR_ROOM );
+    }),
+}
 
 # Track every Room object, so we can ->leave them all on shutdown
 my %bot_matrix_rooms;
@@ -233,11 +257,7 @@ Future->needs_all(
         } values %ROOM_FOR_CHANNEL );
     }),
 
-    $bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
-        Future->wait_all( map {
-            $bot_irc->send_message( "JOIN", undef, $_);
-        } values %CHANNEL_FOR_ROOM );
-    }),
+    connect_irc(),
 )->get;
 
 $loop->attach_signal(
