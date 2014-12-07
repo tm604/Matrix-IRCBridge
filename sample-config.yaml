@@ -17,6 +17,8 @@ irc-bot:
   user: 'matrixbot'
   nick: 'matrixbot'
 
+irc-user-prefix: 'M'
+
 # Bridge config
 bridge:
   - matrix-room: '#bot-test:matrix.org'
