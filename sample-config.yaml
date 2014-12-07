@@ -1,0 +1,29 @@
+# Generic Matrix connection params
+matrix:
+  server: 'matrix.org'
+  SSL: 1
+
+# Bot-user connection details
+matrix-bot:
+  user_id: '@my-irc-bot:matrix.org'
+  password: 'secret-here'
+
+# Generic IRC connection params
+irc:
+  host: 'my-irc-network.net'
+
+# Bot-user connection details
+irc-bot:
+  user: 'matrixbot'
+  nick: 'matrixbot'
+
+# Bridge config
+bridge:
+  - matrix-room: '#bot-test:matrix.org'
+    irc-channel: '#bot-test'
+
+  - matrix-room: '#another-room:some.other.server'
+    irc-channel: '#another-channel'
+
+  - matrix-room: '!roomIDsalsosupportedhere:matrix.org'
+    irc-channel: '#somewhere-secret'
