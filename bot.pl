@@ -296,7 +296,8 @@ END {
     sub get_or_make_matrix_user
     {
         my ($matrix_id, $displayname) = @_;
-        return $matrix_users{$matrix_id} ||= _make_matrix_user($matrix_id, $displayname);
+        return $matrix_users{$matrix_id} ||= _make_matrix_user($matrix_id, $displayname)
+            ->on_fail( sub { delete $matrix_users{$matrix_id} } );
     }
 
     sub is_matrix_user
@@ -376,7 +377,8 @@ END {
 
         get_or_make_matrix_user( $user_id, $args{displayname} )->then( sub {
             my ($user_matrix) = @_;
-            return $matrix_user_rooms{$user_id}{$room_id} //= _join_matrix_user_to_room($user_matrix, $room_id);
+            return $matrix_user_rooms{$user_id}{$room_id} //= _join_matrix_user_to_room($user_matrix, $room_id)
+                ->on_fail( sub { delete $matrix_user_rooms{$user_id}{$room_id} } );
         })->then( sub {
             my ($room) = @_;
             $room->send_message(
@@ -410,7 +412,8 @@ END {
     sub get_or_make_irc_user
     {
         my ($irc_user) = @_;
-        return $irc_users{lc $irc_user} ||= _make_irc_user($irc_user);
+        return $irc_users{lc $irc_user} ||= _make_irc_user($irc_user)
+            ->on_fail( sub { delete $irc_users{lc $irc_user} } );
     }
 
     sub is_irc_user
@@ -467,7 +470,8 @@ END {
         get_or_make_irc_user( $user )->then( sub {
             my ($user_irc) = @_;
             return $irc_user_channels{$user}{$channel} //=
-                $user_irc->send_message( "JOIN", undef, $channel )->then_done( $user_irc );
+                $user_irc->send_message( "JOIN", undef, $channel )->then_done( $user_irc )
+                ->on_fail( sub { delete $irc_user_channels{$user}{$channel} } );
         })->then( sub {
             my ($user_irc) = @_;
 
