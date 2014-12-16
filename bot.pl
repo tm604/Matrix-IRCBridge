@@ -2,10 +2,11 @@
 use strict;
 use warnings;
 use 5.010; # //
+use Future::Utils qw( try_repeat );
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix 0.10; # $room->invite; ->join_room bugfix
+use Net::Async::Matrix 0.13; # $room->invite; ->join_room bugfix
 use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
 use JSON;
 use YAML;
@@ -243,20 +244,52 @@ sub connect_irc
 my %bot_matrix_rooms;
 my @user_matrix_rooms;
 
-Future->needs_all(
-    $bot_matrix->login( %{ $CONFIG{"matrix-bot"} } )->then( sub {
-        $bot_matrix->start;
-    })->then( sub {
+sub try_repeat_with_delay(&)
+{
+    my ( $code ) = @_;
+
+    my $retries_remaining = 5;
+
+    try_repeat {
+        $code->()->else_with_f( sub {
+            my ( $f ) = @_;
+            return $f unless $retries_remaining--;
+
+            warn $f->failure . "; $retries_remaining attempts remaining...\n";
+
+            $loop->delay_future( after => 5 )
+                ->then( sub { $f } )
+        })
+    } while => sub { shift->failure and $retries_remaining };
+}
+
+sub connect_matrix
+{
+    my $login_f = try_repeat_with_delay {
+        $bot_matrix->login( %{ $CONFIG{"matrix-bot"} } )->then( sub {
+            $bot_matrix->start;
+        });
+    };
+
+    $login_f->then( sub {
         Future->wait_all( map {
             my $room_alias = $_;
-            $bot_matrix->join_room($room_alias)->on_done( sub {
+
+            my $f = try_repeat_with_delay {
+                $bot_matrix->join_room($room_alias)
+            };
+
+            $f->on_done( sub {
                 my ( $room ) = @_;
                 $bot_matrix_rooms{$room_alias} = $room;
                 $room_alias_for_id{$room->room_id} = $room_alias;
             })
         } values %ROOM_FOR_CHANNEL );
-    }),
+    })
+}
 
+Future->needs_all(
+    connect_matrix(),
     connect_irc(),
 )->get;
 
