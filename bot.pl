@@ -71,8 +71,6 @@ my $bot_matrix = Net::Async::Matrix->new(
     on_room_new => sub {
         my ($matrix, $room) = @_;
 
-        warn "[Matrix] have a room ID: " . $room->room_id . "\n";
-
         $room->configure(
             on_message => \&on_room_message,
         );
