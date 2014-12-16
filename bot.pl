@@ -429,7 +429,7 @@ END {
             # SPEC TODO: we really need a nicer way to determine this.
             return unless @_ > 1 and $_[1] eq "http";
             my $resp = $_[2];
-            return unless $resp->code == 403;
+            return unless $resp and $resp->code == 403;
             my $err = eval { JSON->new->decode( $resp->decoded_content ) } or return;
             $err->{error} =~ m/^User \S+ not in room / or return;
 
