@@ -212,9 +212,14 @@ my $bot_irc = Net::Async::IRC->new(
         if( defined $name and $name eq "http" ) {
             my ($response, $request) = @args;
             print STDERR "HTTP failure details:\n" .
-                "Requested URL: ${\$request->method} ${\$request->uri}\n" .
-                "Response ${\$response->status_line}\n";
-            print STDERR " | $_\n" for split m/\n/, $response->decoded_content;
+                "Requested URL: ${\$request->method} ${\$request->uri}\n";
+            if($response) {
+                print STDERR "Response ${\$response->status_line}\n";
+                print STDERR " | $_\n" for split m/\n/, $response->decoded_content;
+            }
+            else {
+                print STDERR "No response\n";
+            }
         }
     },
     on_closed => sub {
