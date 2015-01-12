@@ -236,9 +236,16 @@ $loop->add( $bot_irc );
 
 sub connect_irc
 {
+    my $delay = 0;
+
     $bot_irc->login( %IRC_CONFIG, %{ $CONFIG{"irc-bot"} } )->then(sub {
         Future->wait_all( map {
-            $bot_irc->send_message( "JOIN", undef, $_);
+            my $channel = $_;
+            $loop->delay_future( after => $delay++ )->then( sub {
+                $bot_irc->send_message( "JOIN", undef, $channel )->on_done( sub {
+                    warn "[IRC] joined $channel\n";
+                });
+            });
         } values %CHANNEL_FOR_ROOM );
     }),
 }
@@ -274,16 +281,20 @@ sub connect_matrix
         });
     };
 
+    # Stagger room joins to avoid thundering-herd on the server
+    my $delay = 0;
+
     $login_f->then( sub {
         Future->wait_all( map {
             my $room_alias = $_;
 
-            my $f = try_repeat_with_delay {
-                $bot_matrix->join_room($room_alias)
-            };
-
-            $f->on_done( sub {
+            $loop->delay_future( after => $delay++ )->then( sub {
+                try_repeat_with_delay {
+                    $bot_matrix->join_room($room_alias)
+                }
+            })->on_done( sub {
                 my ( $room ) = @_;
+                warn "[Matrix] joined $room_alias\n";
                 $bot_matrix_rooms{$room_alias} = $room;
                 $room_alias_for_id{$room->room_id} = $room_alias;
             })
@@ -291,10 +302,14 @@ sub connect_matrix
     })
 }
 
+print STDERR "**********\nMatrix <-> IRC bridge starting...\n**********\n";
+
 Future->needs_all(
     connect_matrix(),
     connect_irc(),
 )->get;
+
+print STDERR "*****\nNow connected\n*****\n";
 
 $loop->attach_signal(
     PIPE => sub { warn "pipe\n" }
@@ -311,6 +326,8 @@ $loop->run;
 
 END {
     return unless $running;
+
+    print STDERR "**********\nMatrix <-> IRC bridge shutting down...\n**********\n";
 
     # When the bot gets shut down, have it leave the rooms so it's clear to observers
     # that it is no longer running.
