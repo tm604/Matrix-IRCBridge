@@ -132,9 +132,17 @@ sub on_room_message
         # We can't directly post an image URL onto IRC as the ghost user,
         # without it being unspoofable. Instead we'll have the bot user
         # /itself/ report on this fact
+        #
+        # Additionally, if the URL is an mxc://... URL, we'll have to convert
+        # it to the HTTP content repository URL for non-matrix clients
+        my $uri = URI->new( $content->{url} );
+        if( $uri->scheme eq "mxc" ) {
+            $uri = "https://$MATRIX_CONFIG{server}/_matrix/media/v1/download/" . $uri->authority . $uri->path;
+        }
+
         $room->adopt_future( send_irc_as_bot(
             channel => $irc_channel,
-            message => "<$irc_user> posted image: $content->{url}",
+            message => "<$irc_user> posted image: $uri",
         ) );
     }
     else {
