@@ -142,8 +142,9 @@ sub on_room_message
 
         $room->adopt_future( send_irc_as_bot(
             channel => $irc_channel,
-            message => "<$irc_user> posted image: $uri",
+            message => "<$irc_user> posted image: $uri - $msg",
         ) );
+        return;
     }
     else {
         warn "  [Matrix] Unknown message type '$msgtype' - ignoring";
