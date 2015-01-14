@@ -480,10 +480,10 @@ END {
     sub get_or_make_irc_user
     {
         my ($irc_user) = @_;
-        $irc_user = _canonise_irc_name $irc_user;
+        my $irc_user_canon = _canonise_irc_name $irc_user;
 
-        return $irc_users{$irc_user} ||= _make_irc_user($irc_user)
-            ->on_fail( sub { delete $irc_users{$irc_user} } );
+        return $irc_users{$irc_user_canon} ||= _make_irc_user($irc_user)
+            ->on_fail( sub { delete $irc_users{$irc_user_canon} } );
     }
 
     sub is_irc_user
@@ -497,6 +497,7 @@ END {
     sub _make_irc_user
     {
         my ($user_name) = @_;
+        my $user_name_canon = _canonise_irc_name $user_name;
 
         warn "[IRC] making new IRC user for $user_name\n";
 
@@ -512,16 +513,16 @@ END {
                 # TODO: Get NaIRC to add kicked_is_me hint
                 my $kicked_is_me = $user_irc->is_nick_me( $hints->{kicked_nick} );
 
-                _on_irc_kicked( $user_name, $hints->{target_name} ) if $kicked_is_me;
+                _on_irc_kicked( $user_name_canon, $hints->{target_name} ) if $kicked_is_me;
             },
 
             on_closed => sub {
-                _on_irc_closed( $user_name );
+                _on_irc_closed( $user_name_canon );
             },
         );
         $bot_irc->add_child( $user_irc );
 
-        $irc_users{$user_name} = $user_irc->login(
+        $irc_users{$user_name_canon} = $user_irc->login(
             nick => $user_name,
             %IRC_CONFIG,
         )->on_done(sub {
@@ -588,6 +589,6 @@ END {
         warn "[IRC] user $user_name connection lost\n";
 
         delete $irc_user_channels{$user_name};
-        delete $irc_users{_canonise_irc_name $user_name};
+        delete $irc_users{$user_name};
     }
 }
