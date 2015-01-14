@@ -470,18 +470,27 @@ END {
 }
 
 {
-    my %irc_users; # {lc $user_name} = Future of $user_irc
+    my %irc_users; # {$user_name} = Future of $user_irc
+    sub _canonise_irc_name
+    {
+        return lc $_[0];
+    }
+
     sub get_or_make_irc_user
     {
         my ($irc_user) = @_;
-        return $irc_users{lc $irc_user} ||= _make_irc_user($irc_user)
-            ->on_fail( sub { delete $irc_users{lc $irc_user} } );
+        $irc_user = _canonise_irc_name $irc_user;
+
+        return $irc_users{$irc_user} ||= _make_irc_user($irc_user)
+            ->on_fail( sub { delete $irc_users{$irc_user} } );
     }
 
     sub is_irc_user
     {
         my ($irc_user) = @_;
-        return defined $irc_users{lc $irc_user};
+        $irc_user = _canonise_irc_name $irc_user;
+
+        return defined $irc_users{$irc_user};
     }
 
     sub _make_irc_user
@@ -511,7 +520,7 @@ END {
         );
         $bot_irc->add_child( $user_irc );
 
-        $irc_users{lc $user_name} = $user_irc->login(
+        $irc_users{$user_name} = $user_irc->login(
             nick => $user_name,
             %IRC_CONFIG,
         )->on_done(sub {
@@ -578,6 +587,6 @@ END {
         warn "[IRC] user $user_name connection lost\n";
 
         delete $irc_user_channels{$user_name};
-        delete $irc_users{lc $user_name};
+        delete $irc_users{_canonise_irc_name $user_name};
     }
 }
