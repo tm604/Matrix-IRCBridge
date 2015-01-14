@@ -473,7 +473,8 @@ END {
     my %irc_users; # {$user_name} = Future of $user_irc
     sub _canonise_irc_name
     {
-        return lc $_[0];
+        my $maxlen = $bot_irc->isupport( 'NICKLEN' ) // 9;
+        return lc substr $_[0], 0, $maxlen;
     }
 
     sub get_or_make_irc_user
