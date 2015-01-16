@@ -343,7 +343,7 @@ END {
     print STDERR "Removing ghost users from Matrix rooms...\n";
     Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
 
-    if( $CONFIG{"leave-on-shutdown"} // 1 ) {
+    if( $CONFIG{"remove-bot-on-shutdown"} // 1 ) {
         print STDERR "Removing bot from Matrix rooms...\n";
         Future->wait_all( map { $_->leave->else_done() } values %bot_matrix_rooms )->get;
     }
