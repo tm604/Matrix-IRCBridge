@@ -340,8 +340,13 @@ END {
 
     # When the bot gets shut down, have it leave the rooms so it's clear to observers
     # that it is no longer running.
-    print STDERR "Removing ghost users from Matrix rooms...\n";
-    Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
+    if( $CONFIG{"remove-users-on-shutdown"} // 1 ) {
+        print STDERR "Removing ghost users from Matrix rooms...\n";
+        Future->wait_all( map { $_->leave->else_done() } @user_matrix_rooms )->get;
+    }
+    else {
+        print STDERR "Leaving ghost users in Matrix rooms.\n";
+    }
 
     if( $CONFIG{"remove-bot-on-shutdown"} // 1 ) {
         print STDERR "Removing bot from Matrix rooms...\n";
