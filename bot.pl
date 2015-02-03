@@ -6,7 +6,7 @@ use Future::Utils qw( try_repeat );
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix 0.15; # enable_events
+use Net::Async::Matrix 0.15; # enable_events, m.notice
 use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
 use JSON;
 use YAML;
@@ -122,11 +122,15 @@ sub on_room_message
     $irc_user = "$CONFIG{'irc-user-prefix'}-$irc_user";
 
     my $emote;
+    my $notice;
     if( $msgtype eq 'm.text' ) {
         $emote = 0;
     }
     elsif( $msgtype eq 'm.emote' ) {
         $emote = 1;
+    }
+    elsif( $msgtype eq 'm.notice' ) {
+        $notice = 1;
     }
     elsif( $msgtype eq 'm.image' ) {
         # We can't directly post an image URL onto IRC as the ghost user,
@@ -162,6 +166,7 @@ sub on_room_message
             channel  => $irc_channel,
             message  => $line,
             emote    => $emote,
+            notice   => $notice,
         ));
     }
 }
@@ -203,7 +208,6 @@ my $bot_irc = Net::Async::IRC->new(
         my $msg = String::Tagged::IRC->parse_irc( $hints->{text} );
 
         warn "[IRC] Text message in $channel: $msg\n";
-        return if $hints->{is_notice};
         return if is_irc_user($hints->{prefix_name});
 
         warn "  [IRC] sending text for $matrix_id - $msg\n";
@@ -211,7 +215,7 @@ my $bot_irc = Net::Async::IRC->new(
             user_id     => $matrix_id,
             displayname => "(IRC $hints->{prefix_nick})",
             room_id     => $matrix_room,
-            type        => 'm.text',
+            type        => $hints->{is_notice} ? 'm.notice' : 'm.text',
             message     => $msg->as_formatted,
         ));
     },
@@ -544,6 +548,7 @@ END {
         my $user    = $args{irc_user};
         my $channel = $args{channel};
         my $emote   = $args{emote};
+        my $notice  = $args{notice};
         my $message = $args{message};
 
         get_or_make_irc_user( $user )->then( sub {
@@ -558,9 +563,15 @@ END {
                 String::Tagged::IRC->new_from_formatted( $message )->build_irc :
                 $message;
 
-            $emote
-                ? $user_irc->send_ctcp( undef, $channel, "ACTION", $rawmessage )
-                : $user_irc->send_message( "PRIVMSG", undef, $channel, $rawmessage );
+            if( $notice ) {
+                $user_irc->send_message( "NOTICE", undef, $channel, $rawmessage );
+            }
+            elsif( $emote ) {
+                $user_irc->send_ctcp( undef, $channel, "ACTION", $rawmessage );
+            }
+            else {
+                $user_irc->send_message( "PRIVMSG", undef, $channel, $rawmessage );
+            }
         });
     }
 
