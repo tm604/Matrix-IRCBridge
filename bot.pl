@@ -6,7 +6,7 @@ use Future::Utils qw( try_repeat );
 use IO::Socket::SSL qw(SSL_VERIFY_NONE);
 use IO::Async::Loop;
 use Net::Async::IRC;
-use Net::Async::Matrix 0.13; # $room->invite; ->join_room bugfix
+use Net::Async::Matrix 0.15; # enable_events
 use Net::Async::Matrix::Utils qw( parse_formatted_message build_formatted_message );
 use JSON;
 use YAML;
@@ -384,6 +384,7 @@ END {
 
         my $user_matrix = Net::Async::Matrix->new(
             %MATRIX_CONFIG,
+            enable_events => 0, # ghosts don't need to receive events
         );
         $bot_matrix->add_child( $user_matrix );
 
